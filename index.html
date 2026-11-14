@@ -596,7 +596,7 @@ function analyzeDocx(pkg, withPreviews) {
   docPrs.forEach((dp, i) => {
     const descr = (dp.getAttribute("descr") || "").trim();
     const decorative = dp.getElementsByTagNameNS("*", "decorative").length > 0;
-    const weak = !descr || /^(picture|image|graphic|figure|chart|screenshot)\s*\d*$/i.test(descr) || /\.(png|jpe?g|gif|emf|wmf|svg|bmp|tiff?)$/i.test(descr) || /description automatically generated/i.test(descr);
+    const weak = !descr || /^(picture|image|graphic|figure|chart|screenshot)\s*\d*$/i.test(descr) || /\.(png|jpe?g|gif|emf|wmf|svg|bmp|tiff?)$/i.test(descr) || /description automatically generated/i.test(descr) || /^(https?:\/\/|www\.)\S+$/i.test(descr);
     if (decorative || !weak) return;
     imgN++;
     const container = ancestor(dp, "drawing") || dp.parentNode;
@@ -798,9 +798,57 @@ function setRunColor(doc, r, hex) {
   const sf = doc.createElementNS(NS.a, "a:solidFill"); const cl = doc.createElementNS(NS.a, "a:srgbClr"); cl.setAttribute("val", hex); sf.appendChild(cl);
   const ln = kid(rPr, NS.a, "ln"); rPr.insertBefore(sf, ln ? ln.nextSibling : rPr.firstChild);
 }
+function xfrmOf(el) {
+  const spPr = kid(el, PNS, "spPr") || kid(el, PNS, "grpSpPr"); const x = spPr && kid(spPr, NS.a, "xfrm"); if (!x) return null;
+  const off = kid(x, NS.a, "off"), ext = kid(x, NS.a, "ext"); if (!off || !ext) return null;
+  return { x: +off.getAttribute("x"), y: +off.getAttribute("y"), w: +ext.getAttribute("cx"), h: +ext.getAttribute("cy"), el: x };
+}
+function phOf(sp) { const nv = sp.firstElementChild; const nvPr = nv && kid(nv, PNS, "nvPr"); return nvPr ? kid(nvPr, PNS, "ph") : null; }
+function placedXfrm(sp, sl) {
+  const own = xfrmOf(sp); if (own) return own;
+  const ph = phOf(sp); if (!ph) return null;
+  const type = ph.getAttribute("type") || "body", idx = ph.getAttribute("idx");
+  const norm = (t) => ({ ctrTitle: "title", subTitle: "body", obj: "body" }[t] || t);
+  for (const part of [sl.layout, sl.master]) {
+    if (!part) continue;
+    const cands = pEls(part.doc, "sp").filter((q) => phOf(q));
+    const hit = (part === sl.layout && idx != null && cands.find((q) => phOf(q).getAttribute("idx") === idx)) || cands.find((q) => norm(phOf(q).getAttribute("type") || "body") === norm(type));
+    const r = hit && xfrmOf(hit); if (r) return r;
+  }
+  return null;
+}
+function backdropList(sl) {
+  const list = []; const show = (d) => d.documentElement.getAttribute("showMasterSp") !== "0";
+  const add = (doc) => { const tree = pEls(doc, "spTree")[0]; if (!tree) return; for (const el of Array.from(tree.children)) { if (!["sp", "pic", "grpSp", "graphicFrame"].includes(el.localName) || (el.localName === "sp" && phOf(el))) continue; const r = xfrmOf(el); if (r) list.push({ el, r }); } };
+  if (sl.master && show(sl.doc) && (!sl.layout || show(sl.layout.doc))) add(sl.master.doc);
+  if (sl.layout && show(sl.doc)) add(sl.layout.doc);
+  return list;
+}
+function colorBehind(pt, layers, ctx) {
+  for (let i = layers.length - 1; i >= 0; i--) {
+    const { el, r } = layers[i];
+    if (pt.x < r.x || pt.x > r.x + r.w || pt.y < r.y || pt.y > r.y + r.h) continue;
+    if (el.localName !== "sp") return null;
+    const f = fillOf(kid(el, PNS, "spPr"));
+    if (f) { if (f.localName === "solidFill") return colorEl(f.firstElementChild, ctx); if (f.localName === "noFill") continue; return null; }
+    const st = kid(el, PNS, "style"); const fr = st && kid(st, NS.a, "fillRef");
+    if (fr && parseInt(fr.getAttribute("idx"), 10) > 0) return colorEl(fr.firstElementChild, ctx);
+  }
+  return undefined;
+}
 function contrastRuns(sl, n) {
   const ctx = slideCtx(sl); const bgSlide = slideBg(sl, ctx);
-  const out = []; let unknown = false;
+  const out = []; let unknown = false; const hidden = [];
+  const base0 = backdropList(sl);
+  const tree = pEls(sl.doc, "spTree")[0];
+  const topLevel = tree ? Array.from(tree.children).filter((el) => ["sp", "pic", "grpSp", "graphicFrame"].includes(el.localName)) : [];
+  const behindOf = (sp) => {
+    const idx = topLevel.indexOf(sp); if (idx < 0) return bgSlide;
+    const r = placedXfrm(sp, sl); if (!r) return bgSlide;
+    const layers = base0.concat(topLevel.slice(0, idx).filter((el) => !(el.localName === "sp" && phOf(el) && !xfrmOf(el))).map((el) => ({ el, r: xfrmOf(el) })).filter((o) => o.r));
+    const c = colorBehind({ x: r.x + r.w / 2, y: r.y + Math.min(r.h / 2, 457200) }, layers, ctx);
+    return c === undefined ? bgSlide : c;
+  };
   const masterStyle = (type) => { if (!sl.master) return null; const ts = pEls(sl.master.doc, ["title", "ctrTitle"].includes(type) ? "titleStyle" : type ? "bodyStyle" : "otherStyle")[0]; const d = ts && aEls(ts, "defRPr")[0]; const f = d && kid(d, NS.a, "solidFill"); return f ? colorEl(f.firstElementChild, ctx) : null; };
   const textHolders = [...pEls(sl.doc, "sp"), ...aEls(sl.doc, "tc")];
   for (const h of textHolders) {
@@ -811,14 +859,14 @@ function contrastRuns(sl, n) {
       bg = colorEl(f.firstElementChild, ctx); base = schemeHex("tx1", ctx);
     } else {
       const spPr = kid(h, PNS, "spPr"); const f = fillOf(spPr); const style = kid(h, PNS, "style");
-      if (f) { if (f.localName === "solidFill") bg = colorEl(f.firstElementChild, ctx); else if (f.localName === "noFill") bg = bgSlide; else bg = null; }
-      else if (style) { const fr = kid(style, NS.a, "fillRef"); bg = fr && parseInt(fr.getAttribute("idx"), 10) > 0 ? colorEl(fr.firstElementChild, ctx) : bgSlide; }
-      else bg = bgSlide;
+      if (f) { if (f.localName === "solidFill") bg = colorEl(f.firstElementChild, ctx); else if (f.localName === "noFill") bg = behindOf(h); else bg = null; }
+      else if (style) { const fr = kid(style, NS.a, "fillRef"); bg = fr && parseInt(fr.getAttribute("idx"), 10) > 0 ? colorEl(fr.firstElementChild, ctx) : behindOf(h); }
+      else bg = behindOf(h);
       const fo = style && kid(style, NS.a, "fontRef");
       const lst = aEls(h, "lstStyle")[0]; const d = lst && aEls(lst, "defRPr")[0]; const lf = d && kid(d, NS.a, "solidFill");
       base = (lf && colorEl(lf.firstElementChild, ctx)) || (fo && colorEl(fo.firstElementChild, ctx)) || masterStyle(phType(h)) || schemeHex("tx1", ctx);
     }
-    const runs = [...aEls(h, "r"), ...aEls(h, "fld")].filter((r) => { const t = kid(r, NS.a, "t"); return t && t.textContent.trim(); });
+    const runs = [...aEls(h, "r"), ...aEls(h, "fld")].filter((r) => { const t = kid(r, NS.a, "t"); if (!t || !t.textContent) return false; if (t.textContent.trim()) return true; const rp = kid(r, NS.a, "rPr"); return !!(rp && kid(rp, NS.a, "solidFill")); });
     if (!runs.length) continue;
     if (!bg) { unknown = true; continue; }
     for (const r of runs) {
@@ -827,13 +875,38 @@ function contrastRuns(sl, n) {
       let fg = f && f.localName === "solidFill" ? colorEl(f.firstElementChild, ctx) : null;
       if (!fg && rPr && kid(rPr, NS.a, "hlinkClick")) fg = schemeHex("hlink", ctx);
       fg = fg || base; if (!fg) continue;
-      if (contrast(fg, bg) < 4.5) out.push({ r, doc: sl.doc, fg, bg, to: fixedColor(fg, bg), n });
+      const ratio = contrast(fg, bg);
+      if (ratio < 1.5) { let hd = hidden.find((q) => q.sp === h); if (!hd) { hd = { sp: h, runs: [], bg, isTitle: h.localName === "sp" && ["title", "ctrTitle"].includes(phType(h)) }; hidden.push(hd); } hd.runs.push(r); }
+      else if (ratio < 4.5) out.push({ r, doc: sl.doc, fg, bg, to: fixedColor(fg, bg), n });
+    }
+    for (const epr of aEls(h, "endParaRPr")) {
+      if (h.localName === "sp" && ancestor(epr, "tc")) continue;
+      const f = fillOf(epr); if (!f || f.localName !== "solidFill") continue;
+      const fg = colorEl(f.firstElementChild, ctx); if (!fg) continue;
+      const ratio = contrast(fg, bg); if (ratio >= 1.5 && ratio < 4.5) out.push({ epr, doc: sl.doc, fg, bg, to: fixedColor(fg, bg), n, silent: true });
     }
   }
-  return { runs: out, unknown };
+  return { runs: out, unknown, hidden };
 }
 const shapeText = (n) => aEls(n, "p").map((p) => aEls(p, "t").map((t) => t.textContent).join("")).filter((x) => x.trim()).join("\n");
 function phType(sp) { const nv = kid(sp, PNS, "nvSpPr"); const nvPr = kid(nv, PNS, "nvPr"); const ph = kid(nvPr, PNS, "ph"); return ph ? (ph.getAttribute("type") || "body") : null; }
+// PowerPoint stores some objects (ink, newer shapes) twice inside mc:AlternateContent; change every copy.
+function altTwins(c) {
+  const alt = ancestor(c, "AlternateContent"); if (!alt) return [c];
+  const id = c.getAttribute("id");
+  const all = Array.from(alt.getElementsByTagNameNS("*", "cNvPr")).filter((t) => t.getAttribute("id") === id);
+  return all.length ? all : [c];
+}
+function moveAboveSlide(doc, sp, sl) {
+  const xf = placedXfrm(sp, sl);
+  if (xf && ancestor(xf.el, "sp") === sp) { kid(xf.el, NS.a, "off").setAttribute("y", String(-xf.h - 45720)); return; }
+  let spPr = kid(sp, PNS, "spPr"); if (!spPr) { spPr = doc.createElementNS(PNS, "p:spPr"); const nv = kid(sp, PNS, "nvSpPr"); sp.insertBefore(spPr, nv ? nv.nextSibling : sp.firstChild); }
+  const h0 = xf ? xf.h : 640080;
+  const xfrm = doc.createElementNS(NS.a, "a:xfrm"); const off = doc.createElementNS(NS.a, "a:off"); off.setAttribute("x", String(xf ? xf.x : 0)); off.setAttribute("y", String(-h0 - 45720));
+  const ext = doc.createElementNS(NS.a, "a:ext"); ext.setAttribute("cx", String(xf ? xf.w : 9144000)); ext.setAttribute("cy", String(h0)); xfrm.appendChild(off); xfrm.appendChild(ext);
+  spPr.insertBefore(xfrm, spPr.firstChild);
+}
+const hidden_in = (list, sp) => list.some((q) => q.sp === sp);
 const KIND = { pic: ["Image", "image"], chart: ["Chart", "chart"], diagram: ["SmartArt", "SmartArt graphic"] };
 function markDecorative(doc, c) {
   c.setAttribute("descr", "");
@@ -878,7 +951,12 @@ function analyzePptx(pkg) {
 
   // Slide titles
   const deckTitle = info[0] ? info[0].title : "";
-  const setTitleText = (sp, v) => { const ts = aEls(sp, "t"); if (!ts.length) return false; ts.forEach((t, k) => { t.textContent = k ? "" : v; }); return true; };
+  const setTitleText = (sp, v) => {
+    const ts = aEls(sp, "t"); if (!ts.length) return false;
+    const main = ts.reduce((a, b) => (b.textContent.trim().length > a.textContent.trim().length ? b : a), ts[0]);
+    ts.forEach((t) => { if (t === main) t.textContent = v; else if (t.textContent.trim()) t.textContent = ""; });
+    return true;
+  };
   info.filter((x) => !x.title && x.tree).forEach((x) => {
     issues.push({ id: "pptx-notitle-" + x.n, type: "review", kindLabel: "Slide title", title: `Slide ${x.n} has no title`,
       detail: x.titleSp ? "The title box on this slide is empty. Screen reader users move through a deck by slide titles." : "Screen reader users move through a deck by slide titles. The title is added just above the slide's top edge, so it's read aloud but doesn't show in the slideshow. Drag it onto the slide in PowerPoint if you want it visible.",
@@ -887,7 +965,7 @@ function analyzePptx(pkg) {
       ai: () => draftSlideTitle(x.n, x.text, deckTitle),
       apply: (s) => {
         const v = s.field.value.trim(); if (!v) return false;
-        if (x.titleSp && setTitleText(x.titleSp, v)) return `Added title "${v}" to slide ${x.n}`;
+        if (x.titleSp && setTitleText(x.titleSp, v)) { moveAboveSlide(x.doc, x.titleSp, x); return `Added title "${v}" to slide ${x.n} (just above the slide edge)`; }
         const ids = Array.from(x.doc.getElementsByTagNameNS(PNS, "cNvPr")).map((c) => parseInt(c.getAttribute("id"), 10) || 0);
         const id = Math.max(1, ...ids) + 1;
         const frag = new DOMParser().parseFromString(`<p:sp xmlns:p="${PNS}" xmlns:a="${NS.a}"><p:nvSpPr><p:cNvPr id="${id}" name="Title ${id}"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="-822960"/><a:ext cx="${slideW}" cy="640080"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-US"/><a:t></a:t></a:r></a:p></p:txBody></p:sp>`, "application/xml");
@@ -941,7 +1019,7 @@ function analyzePptx(pkg) {
       const nv = el.firstElementChild; const c = nv && kid(nv, PNS, "cNvPr"); if (!c) return;
       const descr = (c.getAttribute("descr") || "").trim();
       if (c.getElementsByTagNameNS("*", "decorative").length) return;
-      const weak = !descr || /^(picture|image|graphic|figure|chart|screenshot)\s*\d*$/i.test(descr) || /\.(png|jpe?g|gif|emf|wmf|svg|bmp|tiff?)$/i.test(descr) || /description automatically generated/i.test(descr);
+      const weak = !descr || /^(picture|image|graphic|figure|chart|screenshot)\s*\d*$/i.test(descr) || /\.(png|jpe?g|gif|emf|wmf|svg|bmp|tiff?)$/i.test(descr) || /description automatically generated/i.test(descr) || /^(https?:\/\/|www\.)\S+$/i.test(descr);
       if (!weak) return;
       const video = el.getElementsByTagNameNS(NS.a, "videoFile").length || el.getElementsByTagNameNS("*", "media").length;
       if (video) return;
@@ -954,17 +1032,12 @@ function analyzePptx(pkg) {
         id: `pptx-img-${x.n}-${kind}-${j}`, type: "review", kindLabel: KIND[kind][0],
         title: `Alt text for ${KIND[kind][1]} on slide ${x.n}${x.title ? " (" + (x.title.length > 40 ? x.title.slice(0, 40) + "…" : x.title) + ")" : ""}`,
         detail: descr ? `Current alt text is "${descr.slice(0, 120)}", which doesn't describe the content.` : "This has no alt text, so screen readers skip it or read the file name.",
-        field: { label: "Alt text", value: "", multiline: true }, decorativeAllowed: true, decorative: false, context: ctx,
+        field: { label: "Alt text", value: "", multiline: true }, decorativeAllowed: true, decorative: /^ink\b/i.test(c.getAttribute("name") || ""), context: ctx,
+        hint: /^ink\b/i.test(c.getAttribute("name") || "") ? "This is a pen or ink mark drawn on the slide, so it's set to decorative. Uncheck the box if the mark points out something students need to know, and describe it." : "",
         preview: { kind: "image", path, mime, note: kind !== "pic" ? `This is a PowerPoint ${KIND[kind][1]}, which can't be previewed here. Describe what it shows.` : (!mime ? `This image is a .${ext || "?"} file, which can't be previewed here.` : "") },
         apply: (s) => {
-          if (s.decorative) {
-            c.setAttribute("descr", "");
-            let lst = kid(c, NS.a, "extLst"); if (!lst) { lst = x.doc.createElementNS(NS.a, "a:extLst"); c.appendChild(lst); }
-            const e = x.doc.createElementNS(NS.a, "a:ext"); e.setAttribute("uri", "{C183D7F6-B498-43B3-948B-1728B52AA6E4}");
-            const d = x.doc.createElementNS("http://schemas.microsoft.com/office/drawing/2017/decorative", "adec:decorative"); d.setAttribute("val", "1");
-            e.appendChild(d); lst.appendChild(e); return `Marked ${kind} on slide ${x.n} as decorative`;
-          }
-          const v = s.field.value.trim(); if (!v) return false; c.setAttribute("descr", v); return `Added alt text to ${KIND[kind][1]} on slide ${x.n}`;
+          if (s.decorative) { altTwins(c).forEach((t) => markDecorative(x.doc, t)); return `Marked ${KIND[kind][1]} on slide ${x.n} as decorative`; }
+          const v = s.field.value.trim(); if (!v) return false; altTwins(c).forEach((t) => t.setAttribute("descr", v)); return `Added alt text to ${KIND[kind][1]} on slide ${x.n}`;
         },
       };
       if (mime && path && zip.file(path)) {
@@ -994,15 +1067,39 @@ function analyzePptx(pkg) {
   if (vids.length) issues.push({ id: "pptx-video", type: "advice", title: `Video on slide${vids.length > 1 ? "s" : ""} ${vids.map((x) => x.n).join(", ")}`,
     detail: "Videos need captions. In PowerPoint, select the video, then Playback, then Insert Captions, or use a captioned version from YouTube or Mediasite." });
   // Contrast
-  const low = []; const unk = [];
-  info.forEach((x) => { const r = contrastRuns(x, x.n); low.push(...r.runs); if (r.unknown) unk.push(x.n); });
+  const low = []; const unk = []; const hiddenOther = [];
+  info.forEach((x) => {
+    const r = contrastRuns(x, x.n); low.push(...r.runs); if (r.unknown) unk.push(x.n);
+    r.hidden.forEach((hd) => {
+      const txt = shapeText(hd.sp).replace(/\s+/g, " ").trim();
+      if (!hd.isTitle) { hiddenOther.push({ n: x.n, txt, hd, doc: x.doc }); return; }
+      const visible = pEls(x.doc, "sp").filter((sp) => sp !== hd.sp && !hidden_in(r.hidden, sp)).map((sp) => shapeText(sp).replace(/\s+/g, " ").trim()).filter(Boolean);
+      issues.push({ id: "pptx-hiddentitle-" + x.n, type: "review", kindLabel: "Slide title", title: `Slide ${x.n}'s title is invisible`,
+        detail: `The title on slide ${x.n} is the same color as the background, so students can't see it, but screen readers still read it aloud: "${txt.slice(0, 140)}". This is often left over from a template. The tool replaces it with the title below, makes it a readable color, and moves it just above the slide's top edge, so the slide looks exactly the same.`,
+        field: { label: `Title for slide ${x.n}`, value: (visible[0] || "").slice(0, 100), multiline: false }, context: visible.join("\n").slice(0, 900),
+        preview: { kind: "text", text: "Hidden title text now:\n" + txt },
+        ai: () => draftSlideTitle(x.n, visible.join("\n"), ""),
+        apply: (s) => {
+          const v = s.field.value.trim(); if (!v) return false;
+          const ts = aEls(hd.sp, "t"); if (!ts.length) return false;
+          ts.forEach((t, k) => { t.textContent = k ? "" : v; });
+          const ctx = slideCtx(x); const dark = fixedColor(schemeHex("tx1", ctx) || "000000", hd.bg || "FFFFFF");
+          [...aEls(hd.sp, "r"), ...aEls(hd.sp, "fld")].forEach((rr) => setRunColor(x.doc, rr, contrast(schemeHex("tx1", ctx) || "000000", hd.bg || "FFFFFF") >= 4.5 ? (schemeHex("tx1", ctx) || "000000") : dark));
+          moveAboveSlide(x.doc, hd.sp, x);
+          return `Replaced the invisible title on slide ${x.n} with "${v}" (readable color, just above the slide edge)`;
+        } });
+    });
+  });
+  if (hiddenOther.length) issues.push({ id: "pptx-hidden", type: "advice", title: `Invisible text on slide${hiddenOther.length > 1 ? "s" : ""} ${[...new Set(hiddenOther.map((h) => h.n))].join(", ")}`,
+    detail: "This text is the same color as what's behind it, so students can't see it, but screen readers read it aloud and Carmen flags its contrast: " + hiddenOther.slice(0, 5).map((h) => `slide ${h.n}: "${h.txt.slice(0, 60)}"`).join("; ") + ". Delete it if it's left over, or give it a visible color if it matters." });
+  const lowAll = low.slice(); low.length = 0; low.push(...lowAll.filter((l) => !l.silent));
   if (low.length) {
     const pairs = {}; low.forEach((l) => { const k = l.fg + "/" + l.bg; pairs[k] = pairs[k] || l; });
     const slidesHit = [...new Set(low.map((l) => l.n))];
     issues.push({ id: "pptx-contrast", type: "auto", enabled: true, title: `Fix low-contrast text on ${slidesHit.length} slide${slidesHit.length > 1 ? "s" : ""}`,
       detailHtml: `Text needs a contrast ratio of at least 4.5 to 1 against what's behind it, including theme colors and filled shapes. ${low.length} piece${low.length > 1 ? "s" : ""} of text on slide${slidesHit.length > 1 ? "s" : ""} ${slidesHit.join(", ")} fall short. Each keeps its hue and gets just dark or light enough to pass:<br>` +
         Object.values(pairs).slice(0, 8).map((l) => `<span class="swatch" style="background:#${l.fg}"></span> on <span class="swatch" style="background:#${l.bg}"></span> <span class="mono">${contrast(l.fg, l.bg).toFixed(1)}:1</span> → <span class="swatch" style="background:#${l.to}"></span> <span class="mono">${contrast(l.to, l.bg).toFixed(1)}:1</span>`).join(" &nbsp; "),
-      apply: () => { low.forEach((l) => setRunColor(l.doc, l.r, l.to)); return `Fixed contrast for ${low.length} piece${low.length > 1 ? "s" : ""} of text on ${slidesHit.length} slide${slidesHit.length > 1 ? "s" : ""}`; } });
+      apply: () => { lowAll.forEach((l) => { if (l.epr) { const f = fillOf(l.epr); const c = l.doc.createElementNS(NS.a, "a:srgbClr"); c.setAttribute("val", l.to); while (f.firstChild) f.removeChild(f.firstChild); f.appendChild(c); } else setRunColor(l.doc, l.r, l.to); }); return `Fixed contrast for ${low.length} piece${low.length > 1 ? "s" : ""} of text on ${slidesHit.length} slide${slidesHit.length > 1 ? "s" : ""}`; } });
   }
   if (unk.length) issues.push({ id: "pptx-contrast-unk", type: "advice", title: `Check contrast by eye on slide${unk.length > 1 ? "s" : ""} ${unk.join(", ")}`,
     detail: "These slides have text over a picture, a gradient, or a styled table, so the color behind the text can't be worked out from the file. Look at them in PowerPoint and use Review, then Check Accessibility. A solid box behind text on a photo usually fixes it." });
@@ -1016,10 +1113,10 @@ function analyzePptx(pkg) {
       const descr = (c.getAttribute("descr") || "").trim();
       if (descr && !/\.(png|jpe?g|gif|emf|wmf|svg)$/i.test(descr)) return;
       if (c.getElementsByTagNameNS("*", "decorative").length) return;
-      decos.push({ doc: part.doc, c });
+      altTwins(c).forEach((t) => decos.push({ doc: part.doc, c: t, key: part.path + "#" + c.getAttribute("id") }));
     });
   }));
-  if (decos.length) issues.push({ id: "pptx-master-imgs", type: "auto", enabled: true, title: `Mark ${decos.length} logo or background image${decos.length > 1 ? "s" : ""} on slide templates as decorative`,
+  if (decos.length) issues.push({ id: "pptx-master-imgs", type: "auto", enabled: true, title: (() => { const k = new Set(decos.map((d) => d.key)).size; return `Mark ${k} logo or background image${k > 1 ? "s" : ""} on slide templates as decorative`; })(),
     detail: "These images sit on the slide layouts or master, so they repeat on many slides (usually a logo, banner, or background graphic). Marking them decorative stops screen readers from announcing them on every slide and clears the missing-description warning. If one carries real information, uncheck this and add alt text in View, then Slide Master.",
     apply: () => { decos.forEach((d) => markDecorative(d.doc, d.c)); return `Marked ${decos.length} template image${decos.length > 1 ? "s" : ""} as decorative`; } });
   return issues;
