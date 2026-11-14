@@ -178,6 +178,11 @@ body.no-ai .ai-only, body.ai .noai-only { display: none !important; }
           <button class="secondary" id="sampleRmd" type="button">Load example R Markdown</button>
           <button class="secondary" id="sampleTex" type="button">Load example LaTeX</button>
         </div>
+        <div class="row">
+          <label for="altLimit" style="font-weight:600">Alt text limit</label>
+          <input type="number" id="altLimit" min="60" max="600" step="10" value="150" style="width:96px">
+          <span class="meta">characters. Ohio State recommends about 150. Automatic descriptions are kept under this.</span>
+        </div>
       </div>
     </div>
     <div class="card">
@@ -275,8 +280,8 @@ function aiErrorText(e) {
   if (e.name === "AbortError") return "Stopped.";
   return e.message || "Claude could not draft this one. Type it yourself or try again.";
 }
-const ALT_RULES = `Rules:
-- Keep it to about 150 characters (Ohio State's alt text guideline). Describe what the image means in this lesson, not every visual detail.
+const altRules = () => `Rules:
+- Keep it under ${getLimit()} characters, ideally one or two short sentences. Describe what the image means in this lesson, not every visual detail.
 - Plots: name the plot type and the variables, then the main pattern a student is meant to notice (shape, center, spread, outliers, trend, association, group differences). For a complex plot, give that short summary only; details belong in the caption or text.
 - If the image contains words, include those words exactly.
 - Equations: write the math the way a professor reads it aloud, for example "x bar equals the sum of x sub i for i from 1 to n, divided by n".
@@ -293,7 +298,7 @@ ${context || "(none)"}
 
 Look at the image and reply with JSON only, in this form: {"kind": "plot" | "equation" | "table" | "diagram" | "photo" | "screenshot" | "decorative", "alt": "..."}
 If the image carries no information (a border, clip art, a logo), use kind "decorative" and alt "".
-${ALT_RULES}
+${altRules()}
 - Include key numbers you can read from the axes or labels.`;
   const text = await ask(prompt, { images: [blob] });
   const m = text.match(/\{[\s\S]*\}/);
@@ -302,7 +307,7 @@ ${ALT_RULES}
 }
 async function draftCodeAlt(lang, code, context, caption) {
   const prompt = `Write alt text for the figure produced by this ${lang} code chunk in a university statistics course document. You cannot see the figure, only the code. Describe what the plot shows (plot type, variables, how color, shape, or facets are used) and, using the surrounding text, what the student is meant to notice. Do not invent numbers that are not in the code or text.
-${ALT_RULES}
+${altRules()}
 
 Text before the chunk:
 <<<
@@ -319,7 +324,7 @@ Reply with the alt text only.`;
 }
 async function draftContextAlt(file, caption, context) {
   const prompt = `Write draft alt text for an image in a university statistics course document. You cannot see the image. Use the file name, caption, and surrounding text, keep it general, and do not invent specific values.
-${ALT_RULES}
+${altRules()}
 
 File name: ${file}
 ${caption ? "Caption: " + caption + "\n" : ""}Text around it:
@@ -397,6 +402,38 @@ async function florence(image, task) {
   return String((out && out[task]) || "").trim();
 }
 function cutAt(t, n) { t = t.trim(); if (t.length <= n) return t; const c = t.slice(0, n); const i = Math.max(c.lastIndexOf(". "), c.lastIndexOf("; ")); return (i > n * 0.5 ? c.slice(0, i + 1) : c.slice(0, c.lastIndexOf(" ")) + "…").trim(); }
+function getLimit() { const el = document.getElementById("altLimit"); const v = parseInt(el && el.value, 10); return v >= 60 ? Math.min(v, 600) : 150; }
+function trimAlt(t, n) {
+  t = String(t || "").replace(/\s+/g, " ").trim(); if (t.length <= n) return t;
+  const c = t.slice(0, n); const sEnd = Math.max(c.lastIndexOf(". "), c.endsWith(".") ? c.length - 1 : -1);
+  if (sEnd >= n * 0.45) return c.slice(0, sEnd + 1).trim();
+  const comma = c.lastIndexOf(", ");
+  let w = comma >= n * 0.5 ? c.slice(0, comma) : c.slice(0, Math.max(1, c.lastIndexOf(" ")));
+  const STOP = /\s+(of|a|an|the|with|to|and|or|in|on|for|at|by|from|next|that|which|is|are|its|their)$/i;
+  for (let k = 0; k < 4 && STOP.test(w); k++) w = w.replace(STOP, "");
+  return w.replace(/[\s,;:–-]+$/, "") + ".";
+}
+function keyText(ocr, room) {
+  const chunks = ocr.split(/(?<=[.?!])\s+|(?<=%)\s+(?=[A-Z])/).map((t) => t.trim()).filter(Boolean);
+  const score = (t) => (/\d/.test(t) ? 2 : 0) + (/\?$/.test(t) ? 1 : 0);
+  const order = chunks.map((t, i) => ({ t, i, s: score(t) })).sort((a, b) => b.s - a.s || a.t.length - b.t.length || a.i - b.i);
+  const keep = []; let len = 0;
+  for (const o of order) { if (o.s === 0 && keep.length) continue; if (len + o.t.length + 1 > room) continue; keep.push(o); len += o.t.length + 1; }
+  if (!keep.length && chunks[0]) { let o = chunks[0].slice(0, room); return o.slice(0, Math.max(1, o.lastIndexOf(" "))).trim(); }
+  return keep.sort((a, b) => a.i - b.i).map((o) => o.t).join(" ");
+}
+function composeAlt(parts, n) {
+  const hasKey = parts.ocr && /\d|\?/.test(parts.ocr);
+  let alt = trimAlt(parts.cap, hasKey ? Math.max(50, Math.round(n * 0.45)) : n);
+  const room = n - alt.length - 10;
+  if (parts.ocr && room >= 20) { const o = keyText(parts.ocr, room); if (o) alt += (alt.endsWith(".") ? "" : ".") + ` Text: "${o.replace(/"/g, "'")}"`; }
+  return alt;
+}
+function fitAlt(it, v) {
+  if (!it.field || it.field.label !== "Alt text" || !v) return v;
+  if (!it.altParts) it.fullAlt = v;
+  return it.altParts ? composeAlt(it.altParts, getLimit()) : trimAlt(v, getLimit());
+}
 async function localAlt(it) {
   const blob = await it.getBlob();
   const img = await LOCAL.lib.RawImage.fromBlob(blob);
@@ -405,12 +442,11 @@ async function localAlt(it) {
   let cap = await florence(img, "<MORE_DETAILED_CAPTION>");
   cap = cap.replace(/^(the|this) (image|picture|photo|graphic|illustration) (shows|is|depicts|features|displays)( an? | the )?/i, "").replace(/^in this (image|picture),?\s*/i, "").replace(/\s+/g, " ").trim();
   cap = cap.charAt(0).toUpperCase() + cap.slice(1);
-  cap = cutAt(cap.split(/(?<=\.)\s/).slice(0, 2).join(" "), 170);
+  cap = stripQuotes(cap.split(/(?<=\.)\s/).slice(0, 2).join(" "));
   let ocr = (await florence(img, "<OCR>")).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
   const words = ocr.split(" ").filter((x) => /[A-Za-z0-9%]/.test(x));
-  let alt = cap;
-  if (words.length >= 3) alt += (alt.endsWith(".") ? "" : ".") + ` Text in the image: "${cutAt(words.join(" "), 180).replace(/"/g, "'")}"`;
-  return stripQuotes(alt).replace(/'/g, "'");
+  it.altParts = { cap, ocr: words.length >= 3 ? stripQuotes(words.join(" ")) : "" };
+  return composeAlt(it.altParts, getLimit());
 }
 
 /* ------------------------------------------------------------------ */
@@ -1684,7 +1720,7 @@ function reviewEl(it) {
       </div>
     </div>`;
   const el = d.querySelector("#" + CSS.escape(fid)); const cnt = d.querySelector("#" + CSS.escape(fid + "-n"));
-  const upd = (ev) => { if (ev && it.needsApproval) { it.needsApproval = false; const ab = d.querySelector(".approve"); if (ab) ab.remove(); const rb = d.querySelector(".reject"); if (rb) rb.remove(); const m = d.querySelector(".msg"); if (m) m.textContent = "Edited and reviewed. Your version will be used."; } f.value = el.value; if (f.multiline) cnt.textContent = el.value.trim() ? `${el.value.trim().length} characters${el.value.trim().length > 160 ? ". Ohio State recommends about 150. Put extra detail in a caption or the text next to the figure." : ""}` : ""; d.classList.toggle("done", reviewedByPerson(it)); updateCounts(); };
+  const upd = (ev) => { if (ev && it.needsApproval) { it.needsApproval = false; const ab = d.querySelector(".approve"); if (ab) ab.remove(); const rb = d.querySelector(".reject"); if (rb) rb.remove(); const m = d.querySelector(".msg"); if (m) m.textContent = "Edited and reviewed. Your version will be used."; } f.value = el.value; if (f.multiline) cnt.textContent = el.value.trim() ? `${el.value.trim().length} characters${el.value.trim().length > getLimit() ? `. That's over your ${getLimit()}-character limit. Put extra detail in a caption or the text next to the figure.` : ""}` : ""; d.classList.toggle("done", reviewedByPerson(it)); updateCounts(); };
   el.addEventListener("input", upd); upd();
   const ap = d.querySelector(".approve");
   const rj = d.querySelector(".reject");
@@ -1707,7 +1743,7 @@ async function draftOne(it, d) {
     const v = aiOn() ? await it.ai(it) : await it.localAi(it);
     it.needsApproval = true;
     if (it.decorative) { msg.textContent = "Claude marked this image decorative. Uncheck the box if it carries information."; }
-    else { it.field.value = v; msg.textContent = (aiOn() ? "Claude's" : "Automatic") + " fix. It goes into the file unless you edit or reject it."; }
+    else { it.field.value = fitAlt(it, v); msg.textContent = (aiOn() ? "Claude's" : "Automatic") + " fix. It goes into the file unless you edit or reject it."; }
     const fresh = reviewEl(it); d.replaceWith(fresh); fresh.querySelector(".msg").textContent = msg.textContent;
     updateCounts();
   } catch (e) { msg.textContent = aiErrorText(e); btn && (btn.disabled = false); }
@@ -1865,7 +1901,7 @@ $("#draftAll").addEventListener("click", async () => {
     if (aiBlocked) break;
     setStatus(`Drafting ${k + 1} of ${todo.length}…`);
     const it = todo[k]; const msg = it._el.querySelector(".msg");
-    try { it.decorative = false; const v = await it.ai(it); it.needsApproval = true; if (!it.decorative) it.field.value = v; const old = it._el; const fresh = reviewEl(it); old.replaceWith(fresh); fresh.querySelector(".msg").textContent = it.decorative ? "Claude marked this decorative. Uncheck if it carries information." : (aiOn() ? "Claude's" : "Automatic") + " fix. It goes into the file unless you edit or reject it."; }
+    try { it.decorative = false; const v = await it.ai(it); it.needsApproval = true; if (!it.decorative) it.field.value = fitAlt(it, v); const old = it._el; const fresh = reviewEl(it); old.replaceWith(fresh); fresh.querySelector(".msg").textContent = it.decorative ? "Claude marked this decorative. Uncheck if it carries information." : (aiOn() ? "Claude's" : "Automatic") + " fix. It goes into the file unless you edit or reject it."; }
     catch (e) { msg.textContent = aiErrorText(e); if (e && e.code === "rate_limited") break; }
   }
   btn.disabled = false; updateCounts();
@@ -1889,7 +1925,7 @@ async function runLocalAll() {
     setStatus(`Describing image ${k + 1} of ${todo.length}…`);
     try {
       it.decorative = false;
-      const v = await it.localAi(it); it.needsApproval = true; if (!it.decorative) it.field.value = v;
+      const v = await it.localAi(it); it.needsApproval = true; if (!it.decorative) it.field.value = fitAlt(it, v);
       const old = it._el; const fresh = reviewEl(it); old.replaceWith(fresh);
       fresh.querySelector(".msg").textContent = it.decorative ? "This looks like a tiny or decorative image, so it's marked decorative. Uncheck if it carries information." : "Written automatically from what's in the image. Edit it to say what students should take away; otherwise it's used as is.";
     } catch (e) { console.error(e); if (it._el) it._el.querySelector(".msg").textContent = "Couldn't describe this image automatically. Type a description instead."; }
@@ -1974,6 +2010,16 @@ By the Central Limit Theorem,
 Use the figure to explain how the shape changes as $n$ increases.
 \\end{document}
 `;
+(() => {
+  const el = $("#altLimit");
+  try { const v = localStorage.getItem("a11yAltLimit"); if (v) el.value = v; } catch {}
+  el.addEventListener("change", () => {
+    const n = getLimit(); el.value = n; try { localStorage.setItem("a11yAltLimit", String(n)); } catch {}
+    let k = 0;
+    for (const it of state.issues) if (it.needsApproval && !it.decorative && (it.altParts || it.fullAlt)) { it.field.value = it.altParts ? composeAlt(it.altParts, n) : trimAlt(it.fullAlt, n); k++; }
+    if (state.name) { render(); if (k) setStatus(`Shortened or lengthened ${k} automatic description${k > 1 ? "s" : ""} to fit ${n} characters. Descriptions you wrote yourself aren't changed.`); }
+  });
+})();
 $("#sampleRmd").addEventListener("click", () => openFile(new File([SAMPLE_RMD], "lab4-distributions.Rmd"), true, true));
 $("#sampleTex").addEventListener("click", () => openFile(new File([SAMPLE_TEX], "hw5-sampling.tex"), true, true));
 setMode();
