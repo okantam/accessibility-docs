@@ -1408,6 +1408,11 @@ function analyzeRmd(text, ext) {
 function commented(text, pos) { const ls = text.lastIndexOf("\n", pos - 1) + 1; return /(^|[^\\])%/.test(text.slice(ls, pos)); }
 function braceArg(text, open) { let d = 0; for (let i = open; i < text.length; i++) { if (text[i] === "{" && text[i - 1] !== "\\") d++; else if (text[i] === "}" && text[i - 1] !== "\\") { d--; if (!d) return [open + 1, i]; } } return null; }
 function plainTex(s) { return s.replace(/\\\\/g, " ").replace(/\\[a-zA-Z]+\*?(\[[^\]]*\])?/g, " ").replace(/[{}$~]/g, " ").replace(/\s+/g, " ").trim(); }
+function prettyName(name) {
+  let t = String(name || "").replace(/\.[^.]+$/, "").replace(/[-_ ]*accessible$/i, "").replace(/[-_ (]*copy[)_ ]*$/i, "").replace(/[_\-]+/g, " ").replace(/\s+/g, " ").trim();
+  t = t.split(" ").map((w) => (/^[A-Z]{5,}$/.test(w) || (/^[A-Z]{4}$/.test(w) && !/^(STAT|MATH|ECON|PSYC|BIOL|CHEM|PHYS)$/.test(w)) ? w.charAt(0) + w.slice(1).toLowerCase() : w)).join(" ");
+  return t;
+}
 function analyzeTex(text) {
   const issues = [];
   const dcPos = (() => { const re = /\\documentclass/g; let m; while ((m = re.exec(text))) if (!commented(text, m.index)) return m.index; return -1; })();
@@ -1439,6 +1444,7 @@ function analyzeTex(text) {
       detail: "Screen readers announce the PDF's title when it opens. Without one they read the file name, like hw3_final_v2.pdf." + (tm ? " Prefilled from \\title." : ""),
       field: { label: "PDF title", value: tm || "", multiline: false },
       ai: () => draftDocTitle("document", plainTex(text.slice(beginDoc > 0 ? beginDoc : 0))),
+      offline: () => prettyName(state.name),
       edits: (s) => { const v = s.field.value.trim(); if (!v) return []; return [{ start: beginDoc, end: beginDoc, text: (hyper ? "" : "\\usepackage{hyperref}\n") + `\\hypersetup{pdftitle={${texEsc(v)}}, pdfdisplaydoctitle=true}\n` }]; },
       logText: (s) => `Set PDF title to "${s.field.value.trim()}"` });
   }
@@ -1467,6 +1473,14 @@ function analyzeTex(text) {
       },
       logText: (s) => s.decorative ? `Marked ${file} as decorative` : `Added alt text to ${file}` });
   }
+  const tabs = (text.match(/\\begin\{(tabular|tabularx|tabular\*|longtable)\}/g) || []).length;
+  if (dcPos >= 0 && tabs && !/table\/header-rows/.test(text)) {
+    const at = (() => { const e = text.indexOf("\n", dcPos); return e < 0 ? text.length : e + 1; })();
+    issues.push({ id: "tex-tablehead", type: "auto", enabled: true, title: `Mark the header row in ${tabs} table${tabs > 1 ? "s" : ""}`,
+      detailHtml: `Adds <span class="mono">\\tagpdfsetup{table/header-rows={1}}</span> after <span class="mono">\\documentclass</span>, so the first row of every table is tagged as its header. Screen readers then read the header with each cell, and Carmen's checker stops reporting "tables missing headers". If a table is only used for layout, put <span class="mono">\\tagpdfsetup{table/tagging=presentation}</span> just before it.`,
+      edits: () => [{ start: at, end: at, text: "\\tagpdfsetup{table/header-rows={1}}\n" }],
+      logText: () => `Marked the header row in ${tabs} table${tabs > 1 ? "s" : ""}` });
+  }
   const tikz = (text.match(/\\begin\{tikzpicture\}/g) || []).length;
   if (tikz) issues.push({ id: "tex-tikz", type: "advice", title: `${tikz} TikZ drawing${tikz > 1 ? "s" : ""}`,
     detail: "TikZ graphics have no text alternative. Add a sentence in the text that states what each drawing shows, or wrap it as a figure with a descriptive caption." });
@@ -1476,10 +1490,19 @@ function analyzeTex(text) {
     detailHtml: "Yellow, cyan, lime, pink, orange, light gray, and pure green fall below the 4.5 to 1 contrast minimum on white. Each becomes a darker shade of the same color: " + [...new Set(lightEd.map((e) => e.from))].map((c) => `<span class="mono">${c}</span> → <span class="mono">${DARK[c]}</span>`).join(", ") + ".",
     edits: () => lightEd.map(({ start, end, text }) => ({ start, end, text })), logText: () => `Darkened ${lightEd.length} light text color${lightEd.length > 1 ? "s" : ""}` });
   const fh = []; { const fr = /^[ \t]*(\\noindent\s*)?\\textbf\{([^{}\n]{2,80})\}[ \t]*(\\\\)?[ \t]*$/gm; let mm; while ((mm = fr.exec(text))) if (!/[.;,]$/.test(mm[2].trim()) && !commented(text, mm.index)) fh.push({ start: mm.index, end: mm.index + mm[0].length, t: mm[2].trim() }); }
+  const secRe = (lvl) => new RegExp("\\\\" + lvl + "\\*?\\s*(\\[[^\\]]*\\])?\\{", "g");
+  const found = (lvl) => { const re = secRe(lvl); let mm; const out = []; while ((mm = re.exec(text))) if (!commented(text, mm.index)) out.push(mm.index); return out; };
+  const secs = found("section"), subs = found("subsection"), subsubs = found("subsubsection");
+  const promote = !secs.length && (subs.length || subsubs.length);
+  if (promote) issues.push({ id: "tex-headlevel", type: "auto", enabled: true, title: "Start headings at level 1",
+    detail: `This document has ${subs.length ? "\\subsection" : "\\subsubsection"} headings but no \\section, so the tagged PDF's headings start at level ${subs.length ? 2 : 3}. Screen reader users expect the outline to start at level 1, and Carmen's checker reports "headings do not begin at level 1". Each heading moves up one level (\\subsection becomes \\section, \\subsubsection becomes \\subsection), which makes it print slightly larger.`,
+    edits: () => [...subs.map((i) => ({ start: i + 1, end: i + 4, text: "" })), ...subsubs.map((i) => ({ start: i + 1, end: i + 4, text: "" }))],
+    logText: () => "Moved headings up so they start at level 1" });
+  const hcmd = secs.length || promote ? (promote ? "section" : "subsection") : "section";
   if (fh.length) issues.push({ id: "tex-fakeh", type: "auto", enabled: true, title: `Turn ${fh.length} bold line${fh.length > 1 ? "s" : ""} into real headings`,
-    detail: "Lines like \\textbf{Problem 1} look like headings but aren't tagged as headings, so students can't jump between problems. Each becomes \\subsection*{...}, which looks a little larger. Uncheck any that aren't headings.",
-    subs: fh.map((h) => ({ label: `\\textbf{${h.t}}  →  \\subsection*{${h.t}}`, enabled: true })),
-    edits: (s) => fh.filter((h, i) => s.subs[i].enabled).map((h) => ({ start: h.start, end: h.end, text: `\\subsection*{${h.t}}` })),
+    detail: `Lines like \\textbf{Problem 1} look like headings but aren't tagged as headings, so students can't jump between problems. Each becomes \\${hcmd}*{...}, which prints a little larger. Uncheck any that aren't headings.`,
+    subs: fh.map((h) => ({ label: `\\textbf{${h.t}}  →  \\${hcmd}*{${h.t}}`, enabled: true })),
+    edits: (s) => fh.filter((h, i) => s.subs[i].enabled).map((h) => ({ start: h.start, end: h.end, text: `\\${hcmd}*{${h.t}}` })),
     logText: (s) => { const k = s.subs.filter((x) => x.enabled).length; return `Turned ${k} bold line${k > 1 ? "s" : ""} into headings`; } });
   return issues;
 }
