@@ -214,7 +214,7 @@ body.no-ai .ai-only, body.ai .noai-only { display: none !important; }
   <div class="inner">
     <p id="status" role="status" aria-live="polite"></p>
     <div class="row">
-      <button class="quiet" id="draftAll" type="button">Draft all alt text with Claude</button>
+      <button class="quiet" id="draftAll" type="button">Suggest fixes with Claude</button>
       <button class="secondary" id="copyBtn" type="button" hidden>Copy fixed text</button>
       <button id="downloadBtn" type="button">Download fixed file</button>
     </div>
@@ -329,6 +329,36 @@ ${context || "(none)"}
 
 Reply with the alt text only.`;
   return stripQuotes(await ask(prompt));
+}
+
+async function draftLinkText(oldText, url, context) {
+  return stripQuotes(await ask(`Suggest descriptive link text for a link in a university statistics course document. It currently says "${oldText}". It points to: ${url || "(unknown)"}.
+Text around the link:
+<<<
+${context || "(none)"}
+>>>
+The link text should tell a student where the link goes, in 2 to 7 words, without "click here" or "link to". Reply with the link text only.`)).replace(/[.]$/, "");
+}
+async function draftDocTitle(kind, text) {
+  return stripQuotes(await ask(`Suggest a title for this ${kind} from a university statistics course. Make it specific and under 12 words, like "STAT 1450 Lab 4: Comparing Distributions" (include a course number only if the text shows one). Reply with the title only.
+Start of the content:
+<<<
+${String(text || "").slice(0, 1500)}
+>>>`)).replace(/[.]$/, "");
+}
+async function draftSlideTitle(n, slideText, deckTitle) {
+  return stripQuotes(await ask(`Slide ${n} of a statistics lecture deck${deckTitle ? ' called "' + deckTitle + '"' : ""} has no title. Suggest a short, specific title, at most 8 words, that tells a student what the slide is about. Reply with the title only.
+Slide content:
+<<<
+${slideText || "(the slide has no text; it may be only an image)"}
+>>>`)).replace(/[.]$/, "");
+}
+async function draftDistinctTitle(n, cur, slideText, all) {
+  return stripQuotes(await ask(`In a statistics lecture deck, slides ${all.join(", ")} all have the title "${cur}". Suggest a title for slide ${n} that keeps "${cur}" recognizable but tells this slide apart from the others, at most 10 words, for example "${cur}: two-sample case" or "${cur} (continued)". Reply with the title only.
+Slide ${n} content:
+<<<
+${slideText || "(no text)"}
+>>>`)).replace(/[.]$/, "");
 }
 
 /* ------------------------------------------------------------------ */
@@ -446,6 +476,7 @@ function analyzeDocx(pkg, withPreviews) {
       issues.push({ id: "docx-title", type: "review", kindLabel: "Title", title: "Add a document title",
         detail: "Screen readers announce the title when the file opens. It is blank now, so they read the file name instead. This is prefilled from the first line; edit it if needed.",
         field: { label: "Document title", value: guess, multiline: false },
+        ai: () => draftDocTitle("document", paras.map(paraText).filter((t) => t.trim()).join("\n")),
         apply: (s) => { const v = s.field.value.trim(); if (!v) return false; if (!titleEl) { titleEl = core.createElementNS(NS.dc, "dc:title"); core.documentElement.appendChild(titleEl); } titleEl.textContent = v; return `Set document title to "${v}"`; } });
     }
   }
@@ -617,6 +648,7 @@ function analyzeDocx(pkg, withPreviews) {
     issues.push({ id: "docx-link-" + i, type: "review", kindLabel: "Link", title: `Link text "${t.length > 40 ? t.slice(0, 40) + "…" : t}"`,
       detail: `Screen reader users often jump from link to link and hear only the link text. Say where it goes, like "Week 3 practice problems".${target ? " Link goes to: " + target : ""}`,
       field: { label: "New link text", value: "", multiline: false, placeholder: "e.g. Week 3 practice problems" },
+      ai: () => { const p = ancestor(h, "p"); return draftLinkText(t, target, p ? paraText(p) : ""); },
       apply: (s) => { const v = s.field.value.trim(); if (!v) return false; const ts = wEls(h, "t"); ts.forEach((x, k) => { x.textContent = k ? "" : v; }); ts[0].setAttribute("xml:space", "preserve"); return `Changed link text "${t}" to "${v}"`; } });
   });
 
@@ -629,6 +661,8 @@ function analyzeDocx(pkg, withPreviews) {
 async function exportDocx() {
   const pkg = await loadDocx(state.buf);
   const fresh = analyzeDocx(pkg, false);
+  const ser = (d) => new XMLSerializer().serializeToString(d);
+  const before = {}; for (const p of DOCX_PARTS) if (pkg.parts[p]) before[p] = ser(pkg.parts[p]);
   const log = [];
   for (const f of fresh) {
     const saved = state.issues.find((x) => x.id === f.id); if (!saved || f.type === "advice" || saved.needsApproval) continue;
@@ -636,7 +670,8 @@ async function exportDocx() {
     const res = f.apply(saved); if (res) log.push(res);
   }
   for (const p of DOCX_PARTS) if (pkg.parts[p]) {
-    const xml = new XMLSerializer().serializeToString(pkg.parts[p]).replace(/^<\?xml[^>]*\?>\s*/, "");
+    const now = ser(pkg.parts[p]); if (now === before[p]) continue;
+    const xml = now.replace(/^<\?xml[^>]*\?>\s*/, "");
     pkg.zip.file(p, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + xml);
   }
   const blob = await pkg.zip.generateAsync({ type: "blob", compression: "DEFLATE", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
@@ -691,8 +726,11 @@ function analyzePptx(pkg) {
   const info = slides.map((sl, i) => {
     const tree = pEls(sl.doc, "spTree")[0];
     const titleSp = tree ? pEls(tree, "sp").find((sp) => ["title", "ctrTitle"].includes(phType(sp))) : null;
-    return { ...sl, n: i + 1, tree, titleSp, title: titleSp ? shapeText(titleSp).replace(/\s+/g, " ").trim() : "" };
+    const text = pEls(sl.doc, "sp").filter((sp) => sp !== titleSp).map(shapeText).filter(Boolean).join("\n").slice(0, 900);
+    return { ...sl, n: i + 1, tree, titleSp, text, title: titleSp ? shapeText(titleSp).replace(/\s+/g, " ").trim() : "" };
   });
+  const sz = pres ? pEls(pres, "sldSz")[0] : null;
+  const slideW = sz ? parseInt(sz.getAttribute("cx"), 10) || 9144000 : 9144000;
 
   // Presentation title
   if (core) {
@@ -702,6 +740,7 @@ function analyzePptx(pkg) {
       issues.push({ id: "pptx-title", type: "review", kindLabel: "Title", title: "Add a presentation title",
         detail: "Screen readers announce this when the file opens, and it becomes the PDF title if you export. Prefilled from the first slide.",
         field: { label: "Presentation title", value: (info[0] && info[0].title) || "", multiline: false },
+        ai: () => draftDocTitle("slide deck", info.slice(0, 3).map((x) => [x.title, x.text].join("\n")).join("\n\n")),
         apply: (s) => { const v = s.field.value.trim(); if (!v) return false; if (!titleEl) { titleEl = core.createElementNS(NS.dc, "dc:title"); core.documentElement.appendChild(titleEl); } titleEl.textContent = v; return `Set presentation title to "${v}"`; } });
     }
   }
@@ -715,13 +754,39 @@ function analyzePptx(pkg) {
   }
 
   // Slide titles
-  const noTitle = info.filter((x) => !x.title);
-  if (noTitle.length) issues.push({ id: "pptx-notitle", type: "advice", title: `${noTitle.length} slide${noTitle.length > 1 ? "s have" : " has"} no title`,
-    detail: `Slide${noTitle.length > 1 ? "s" : ""} ${noTitle.map((x) => x.n).join(", ")}. Screen reader users move through a deck by slide titles. Add a title using the slide's title placeholder (Home, then Layout, then pick a layout with a title). If you don't want it visible, drag it just off the slide edge; it is still read aloud.` });
-  const seen = {}; info.forEach((x) => { if (x.title) (seen[x.title.toLowerCase()] = seen[x.title.toLowerCase()] || []).push(x.n); });
-  const dups = Object.entries(seen).filter(([, v]) => v.length > 1);
-  if (dups.length) issues.push({ id: "pptx-duptitle", type: "advice", title: "Repeated slide titles",
-    detail: dups.map(([t, v]) => `"${info[v[0] - 1].title}" on slides ${v.join(", ")}`).join("; ") + ". Identical titles make slides hard to tell apart. Add (1), (2) or a short distinguishing word, like \"Example: two-sample t test (cont.)\"." });
+  const deckTitle = info[0] ? info[0].title : "";
+  const setTitleText = (sp, v) => { const ts = aEls(sp, "t"); if (!ts.length) return false; ts.forEach((t, k) => { t.textContent = k ? "" : v; }); return true; };
+  info.filter((x) => !x.title && x.tree).forEach((x) => {
+    issues.push({ id: "pptx-notitle-" + x.n, type: "review", kindLabel: "Slide title", title: `Slide ${x.n} has no title`,
+      detail: x.titleSp ? "The title box on this slide is empty. Screen reader users move through a deck by slide titles." : "Screen reader users move through a deck by slide titles. The title is added just above the slide's top edge, so it's read aloud but doesn't show in the slideshow. Drag it onto the slide in PowerPoint if you want it visible.",
+      field: { label: "Slide title", value: "", multiline: false, placeholder: "e.g. Checking conditions for a t test" }, context: x.text,
+      preview: { kind: "text", text: x.text || "(This slide has no text. It may be only a picture.)" },
+      ai: () => draftSlideTitle(x.n, x.text, deckTitle),
+      apply: (s) => {
+        const v = s.field.value.trim(); if (!v) return false;
+        if (x.titleSp && setTitleText(x.titleSp, v)) return `Added title "${v}" to slide ${x.n}`;
+        const ids = Array.from(x.doc.getElementsByTagNameNS(PNS, "cNvPr")).map((c) => parseInt(c.getAttribute("id"), 10) || 0);
+        const id = Math.max(1, ...ids) + 1;
+        const frag = new DOMParser().parseFromString(`<p:sp xmlns:p="${PNS}" xmlns:a="${NS.a}"><p:nvSpPr><p:cNvPr id="${id}" name="Title ${id}"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="-822960"/><a:ext cx="${slideW}" cy="640080"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-US"/><a:t></a:t></a:r></a:p></p:txBody></p:sp>`, "application/xml");
+        const sp = x.doc.importNode(frag.documentElement, true);
+        aEls(sp, "t")[0].textContent = v;
+        if (x.titleSp) x.tree.replaceChild(sp, x.titleSp);
+        else { const anchor = kid(x.tree, PNS, "grpSpPr") || kid(x.tree, PNS, "nvGrpSpPr"); x.tree.insertBefore(sp, anchor ? anchor.nextSibling : x.tree.firstChild); }
+        return `Added title "${v}" to slide ${x.n} (just above the slide edge)`;
+      } });
+  });
+  const seen = {}; info.forEach((x) => { if (x.title) (seen[x.title.toLowerCase()] = seen[x.title.toLowerCase()] || []).push(x); });
+  Object.values(seen).filter((v) => v.length > 1).forEach((group) => {
+    const nums = group.map((x) => x.n);
+    group.forEach((x) => {
+      issues.push({ id: "pptx-dup-" + x.n, type: "review", kindLabel: "Slide title", title: `Slide ${x.n} repeats the title "${x.title.length > 40 ? x.title.slice(0, 40) + "…" : x.title}"`,
+        detail: `Slides ${nums.join(", ")} all have this title, so they sound identical in a screen reader's slide list. Give this one a title that tells it apart, or leave it blank to keep it.`,
+        field: { label: "New title for slide " + x.n, value: "", multiline: false, placeholder: x.title }, context: x.text,
+        preview: { kind: "text", text: x.text || "(no other text on this slide)" },
+        ai: () => draftDistinctTitle(x.n, x.title, x.text, nums),
+        apply: (s) => { const v = s.field.value.trim(); if (!v || v === x.title) return false; return setTitleText(x.titleSp, v) ? `Retitled slide ${x.n} "${v}"` : false; } });
+    });
+  });
 
   // Reading order: title first
   const reorder = info.filter((x) => {
@@ -794,6 +859,7 @@ function analyzePptx(pkg) {
     issues.push({ id: `pptx-link-${x.n}-${j}`, type: "review", kindLabel: "Link", title: `Link text "${t.length > 40 ? t.slice(0, 40) + "…" : t}" on slide ${x.n}`,
       detail: `Screen reader users often jump from link to link and hear only the link text. Say where it goes.${target ? " Link goes to: " + target : ""}`,
       field: { label: "New link text", value: "", multiline: false, placeholder: "e.g. StatKey bootstrap applet" },
+      ai: () => draftLinkText(t, target, x.text),
       apply: (s) => { const v = s.field.value.trim(); if (!v) return false; tEl.textContent = v; return `Changed link text "${t}" to "${v}" on slide ${x.n}`; } });
   }));
 
@@ -807,6 +873,8 @@ function analyzePptx(pkg) {
 async function exportPptx() {
   const pkg = await loadPptx(state.buf);
   const fresh = analyzePptx(pkg);
+  const ser = (d) => new XMLSerializer().serializeToString(d);
+  const before = {}; for (const [p, d] of Object.entries(pkg.parts)) before[p] = ser(d);
   const log = [];
   for (const f of fresh) {
     const saved = state.issues.find((x) => x.id === f.id); if (!saved || f.type === "advice" || saved.needsApproval) continue;
@@ -815,7 +883,8 @@ async function exportPptx() {
   }
   for (const [p, d] of Object.entries(pkg.parts)) {
     if (p.endsWith(".rels")) continue;
-    const xml = new XMLSerializer().serializeToString(d).replace(/^<\?xml[^>]*\?>\s*/, "");
+    const now = ser(d); if (now === before[p]) continue;
+    const xml = now.replace(/^<\?xml[^>]*\?>\s*/, "");
     pkg.zip.file(p, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + xml);
   }
   const blob = await pkg.zip.generateAsync({ type: "blob", compression: "DEFLATE", mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation" });
@@ -860,6 +929,7 @@ function analyzeRmd(text, ext) {
     issues.push({ id: "md-title", type: "review", kindLabel: "Title", title: "Add a document title",
       detail: "The title becomes the page or PDF title that screen readers announce first.",
       field: { label: "Title", value: h ? h[1].trim() : "", multiline: false },
+      ai: () => draftDocTitle("document", text.slice(yamlEnd)),
       yaml: (s) => (s.field.value.trim() ? "title: " + yamlStr(s.field.value) : null), logText: (s) => `Added title "${s.field.value.trim()}"` });
   }
   if (!/^lang\s*:/m.test(yaml)) {
@@ -943,6 +1013,7 @@ function analyzeRmd(text, ext) {
     issues.push({ id: "md-link-" + pos, type: "review", kindLabel: "Link", title: `Link text "${word}"`,
       detail: `Screen reader users often jump from link to link and hear only the link text. Say where it goes. Link goes to: ${url}`,
       field: { label: "New link text", value: "", multiline: false, placeholder: "e.g. ggplot2 cheat sheet" },
+      ai: () => draftLinkText(word, url, text.slice(Math.max(0, pos - 300), pos + 200)),
       edits: (s) => { const v = s.field.value.trim(); return v ? [{ start: pos + 1, end: pos + 1 + word.length, text: v.replace(/[\[\]]/g, "") }] : []; },
       logText: (s) => `Changed link text "${word}" to "${s.field.value.trim()}"` });
   }
@@ -975,6 +1046,7 @@ function analyzeTex(text) {
     issues.push({ id: "tex-title", type: "review", kindLabel: "Title", title: "Set the PDF title",
       detail: "Screen readers announce the PDF's title when it opens. Without one they read the file name, like hw3_final_v2.pdf." + (tm ? " Prefilled from \\title." : ""),
       field: { label: "PDF title", value: tm || "", multiline: false },
+      ai: () => draftDocTitle("document", plainTex(text.slice(beginDoc > 0 ? beginDoc : 0))),
       edits: (s) => { const v = s.field.value.trim(); if (!v) return []; return [{ start: beginDoc, end: beginDoc, text: (hyper ? "" : "\\usepackage{hyperref}\n") + `\\hypersetup{pdftitle={${texEsc(v)}}, pdfdisplaydoctitle=true}\n` }]; },
       logText: (s) => `Set PDF title to "${s.field.value.trim()}"` });
   }
@@ -1171,7 +1243,7 @@ function render() {
       <div class="tile info"><div class="n">${adv.length}</div><div class="l">tips to do by hand</div></div>
     </div>`;
   const g = $("#groups"); g.innerHTML = "";
-  const revGroup = groupEl("Needs your review", aiOn() ? "Claude can draft each of these. Read the draft, edit it so it says what you want students to take away, then move on. Items left blank aren't changed." : "Fill in each of these. Say what a student should take away, not only what the picture looks like. Items left blank aren't changed.", rev, reviewEl, "Nothing needs review.");
+  const revGroup = groupEl("Needs your review", aiOn() ? "Click Suggest fixes and Claude proposes an edit for each item. Approve, edit, or reject each one; only what you approve goes into the file. Items left blank aren't changed." : "Fill in each of these. Say what a student should take away, not only what the picture looks like. Items left blank aren't changed.", rev, reviewEl, "Nothing needs review.");
   if (rev.some((i) => i.field && i.field.multiline)) {
     const gd = document.createElement("details"); gd.className = "guide card";
     gd.innerHTML = `<summary>How to write alt text for a statistics graphic</summary><ul>
@@ -1243,8 +1315,8 @@ function reviewEl(it) {
         <div class="field"><label for="${fid}">${esc(f.label)}</label>${input}<span class="meta" id="${fid}-n" aria-live="off"></span></div>
         ${it.hint ? `<p class="hint">${esc(it.hint)}</p>` : ""}
         <div class="row">
-          ${it.needsApproval ? `<button type="button" class="approve">Approve draft</button>` : ""}
-          ${canAI ? `<button type="button" class="secondary ai">${it.needsApproval || f.value.trim() ? "Redraft" : "Draft with Claude"}</button>` : ""}
+          ${it.needsApproval ? `<button type="button" class="approve">Approve</button><button type="button" class="quiet reject">Reject</button>` : ""}
+          ${canAI ? `<button type="button" class="secondary ai">${it.needsApproval || f.value.trim() ? "Suggest another" : "Suggest with Claude"}</button>` : ""}
           ${it.decorativeAllowed ? `<label class="check" style="align-items:center"><input type="checkbox" class="deco" ${it.decorative ? "checked" : ""}> <span>Decorative, screen readers should skip it</span></label>` : ""}
         </div>
         <p class="meta msg" role="status"></p>
@@ -1252,10 +1324,12 @@ function reviewEl(it) {
       </div>
     </div>`;
   const el = d.querySelector("#" + CSS.escape(fid)); const cnt = d.querySelector("#" + CSS.escape(fid + "-n"));
-  const upd = (ev) => { if (ev && it.needsApproval) { it.needsApproval = false; const ab = d.querySelector(".approve"); if (ab) ab.remove(); const m = d.querySelector(".msg"); if (m) m.textContent = "Edited. This will be used."; } f.value = el.value; if (f.multiline) cnt.textContent = el.value.trim() ? `${el.value.trim().length} characters${el.value.trim().length > 160 ? ". Ohio State recommends about 150. Put extra detail in a caption or the text next to the figure." : ""}` : ""; d.classList.toggle("done", reviewDone(it)); updateCounts(); };
+  const upd = (ev) => { if (ev && it.needsApproval) { it.needsApproval = false; const ab = d.querySelector(".approve"); if (ab) ab.remove(); const rb = d.querySelector(".reject"); if (rb) rb.remove(); const m = d.querySelector(".msg"); if (m) m.textContent = "Edited. This will be used."; } f.value = el.value; if (f.multiline) cnt.textContent = el.value.trim() ? `${el.value.trim().length} characters${el.value.trim().length > 160 ? ". Ohio State recommends about 150. Put extra detail in a caption or the text next to the figure." : ""}` : ""; d.classList.toggle("done", reviewDone(it)); updateCounts(); };
   el.addEventListener("input", upd); upd();
   const ap = d.querySelector(".approve");
-  if (ap) ap.addEventListener("click", () => { it.needsApproval = false; ap.remove(); d.querySelector(".msg").textContent = "Approved. This will be used."; d.classList.toggle("done", reviewDone(it)); updateCounts(); });
+  const rj = d.querySelector(".reject");
+  if (rj) rj.addEventListener("click", () => { it.needsApproval = false; it.decorative = false; it.field.value = ""; const fresh = reviewEl(it); d.replaceWith(fresh); fresh.querySelector(".msg").textContent = "Suggestion rejected. Nothing will change here unless you type something."; updateCounts(); });
+  if (ap) ap.addEventListener("click", () => { it.needsApproval = false; ap.remove(); rj && rj.remove(); d.querySelector(".msg").textContent = "Approved. This will be used."; d.classList.toggle("done", reviewDone(it)); updateCounts(); });
   const deco = d.querySelector(".deco");
   if (deco) deco.addEventListener("change", () => { it.decorative = deco.checked; el.disabled = deco.checked; d.classList.toggle("done", reviewDone(it)); updateCounts(); });
   if (deco && it.decorative) el.disabled = true;
@@ -1272,7 +1346,7 @@ async function draftOne(it, d) {
     const v = await it.ai(it);
     it.needsApproval = true;
     if (it.decorative) { msg.textContent = "Claude thinks this image is decorative. Approve, or uncheck the box if it carries information."; }
-    else { it.field.value = v; msg.textContent = "Draft ready. Approve it or edit it. Drafts aren't saved into the file until you do."; }
+    else { it.field.value = v; msg.textContent = "Suggested edit. Approve it, edit it, or reject it. Nothing changes in the file until you approve or edit."; }
     const fresh = reviewEl(it); d.replaceWith(fresh); fresh.querySelector(".msg").textContent = msg.textContent;
     updateCounts();
   } catch (e) { msg.textContent = aiErrorText(e); btn && (btn.disabled = false); }
@@ -1299,12 +1373,12 @@ function renderDock() {
   const rev = state.issues.filter((i) => i.type === "review");
   const pending = rev.filter((i) => i.ai && !reviewDone(i) && !i.needsApproval).length;
   da.hidden = !(sampleFn && !aiBlocked && pending);
-  da.textContent = `Draft ${pending} with Claude`;
+  da.textContent = `Suggest fixes for ${pending} item${pending > 1 ? "s" : ""}`;
   cp.hidden = state.kind === "docx" || state.kind === "pptx"; cp.textContent = "Copy fixed text";
   const out = outName(); dl.textContent = "Download " + out; dl.disabled = false;
   const left = rev.filter((i) => !reviewDone(i)).length;
   const waiting = rev.filter((i) => i.needsApproval).length;
-  if (waiting) { setStatus(`${waiting} Claude draft${waiting > 1 ? "s are" : " is"} waiting for your approval and won't be saved into the file until approved or edited.`); return; }
+  if (waiting) { setStatus(`${waiting} suggested edit${waiting > 1 ? "s are" : " is"} waiting for you to approve, edit, or reject. Unapproved suggestions aren't saved into the file.`); return; }
   setStatus(left ? `${left} review item${left > 1 ? "s" : ""} still blank. They'll be left unchanged unless you fill them in.` : "All review items are filled in.");
 }
 function outName() { const base = state.name.replace(/\.[^.]+$/, ""); return `${base}-accessible.${state.kind === "pdf" ? "html" : state.name.split(".").pop()}`; }
@@ -1421,7 +1495,7 @@ $("#draftAll").addEventListener("click", async () => {
     if (aiBlocked) break;
     setStatus(`Drafting ${k + 1} of ${todo.length}…`);
     const it = todo[k]; const msg = it._el.querySelector(".msg");
-    try { it.decorative = false; const v = await it.ai(it); it.needsApproval = true; if (!it.decorative) it.field.value = v; const old = it._el; const fresh = reviewEl(it); old.replaceWith(fresh); fresh.querySelector(".msg").textContent = it.decorative ? "Claude thinks this is decorative. Approve, or uncheck if it carries information." : "Draft ready. Approve it or edit it."; }
+    try { it.decorative = false; const v = await it.ai(it); it.needsApproval = true; if (!it.decorative) it.field.value = v; const old = it._el; const fresh = reviewEl(it); old.replaceWith(fresh); fresh.querySelector(".msg").textContent = it.decorative ? "Claude thinks this is decorative. Approve, or uncheck if it carries information." : "Suggested edit. Approve, edit, or reject."; }
     catch (e) { msg.textContent = aiErrorText(e); if (e && e.code === "rate_limited") break; }
   }
   btn.disabled = false; updateCounts();
