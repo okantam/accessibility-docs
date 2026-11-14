@@ -167,10 +167,10 @@ body.no-ai .ai-only, body.ai .noai-only { display: none !important; }
     <div class="card">
       <div class="drop" id="drop">
         <h2>Check a document</h2>
-        <p>Word (.docx), PDF, R Markdown (.Rmd), Quarto (.qmd), Markdown, or LaTeX (.tex). <span class="noai-only">Your file never leaves your computer: everything runs in your browser and nothing is uploaded.</span><span class="ai-only">Your file stays in your browser; only images and text you send to Claude for drafting leave it.</span></p>
+        <p>Word (.docx), PowerPoint (.pptx), PDF, R Markdown (.Rmd), Quarto (.qmd), Markdown, or LaTeX (.tex). <span class="noai-only">Your file never leaves your computer: everything runs in your browser and nothing is uploaded.</span><span class="ai-only">Your file stays in your browser; only images and text you send to Claude for drafting leave it.</span></p>
         <div class="row">
           <label class="btn file-btn" for="fileInput">Choose a file
-            <input id="fileInput" class="sr-only" type="file" accept=".docx,.pdf,.rmd,.Rmd,.qmd,.md,.tex">
+            <input id="fileInput" class="sr-only" type="file" accept=".docx,.pptx,.pdf,.rmd,.Rmd,.qmd,.md,.tex">
           </label>
           <span class="meta">or drop it here</span>
         </div>
@@ -186,6 +186,7 @@ body.no-ai .ai-only, body.ai .noai-only { display: none !important; }
         <thead><tr><th scope="col">Format</th><th scope="col">What the tool does</th></tr></thead>
         <tbody>
           <tr><th scope="row">Word</th><td>Sets title and language, turns bold lines into real headings, marks table headers, darkens faint text, removes stacked blank lines, and collects alt text for every image<span class="ai-only"> (Claude drafts it)</span>.</td></tr>
+          <tr><th scope="row">PowerPoint</th><td>Sets title and language, makes each slide's title read first, marks table headers, collects alt text for every picture and chart<span class="ai-only"> (Claude drafts it)</span>, and lists slides with missing or repeated titles.</td></tr>
           <tr><th scope="row">R Markdown, Quarto</th><td>Adds title and language, adds <span class="mono">fig-alt</span> to every plotting chunk<span class="ai-only"> (Claude drafts it from the code)</span>, fixes skipped heading levels, flags red/green palettes.</td></tr>
           <tr><th scope="row">LaTeX</th><td>Turns on PDF tagging, sets the PDF title, adds <span class="mono">alt=</span> text for every <span class="mono">\includegraphics</span>.</td></tr>
           <tr><th scope="row">PDF</th><td>Checks title, language, tags, and scanned pages, and shows the best way to fix it.<span class="ai-only"> Claude can rebuild it as an accessible web page or Quarto file with real math.</span></td></tr>
@@ -630,6 +631,185 @@ async function exportDocx() {
 }
 
 /* ------------------------------------------------------------------ */
+/* PowerPoint (.pptx)                                                   */
+/* ------------------------------------------------------------------ */
+const PNS = "http://schemas.openxmlformats.org/presentationml/2006/main";
+const pEls = (n, name) => Array.from(n.getElementsByTagNameNS(PNS, name));
+const aEls = (n, name) => Array.from(n.getElementsByTagNameNS(NS.a, name));
+const kid = (n, ns, name) => { if (!n) return null; for (const c of n.children) if (c.namespaceURI === ns && c.localName === name) return c; return null; };
+const rAttr = (el, name) => el.getAttributeNS(NS.r, name) || el.getAttribute("r:" + name) || "";
+function resolvePath(base, target) {
+  if (target.startsWith("/")) return target.slice(1);
+  const parts = base.split("/"); parts.pop();
+  for (const seg of target.split("/")) { if (seg === "..") parts.pop(); else if (seg && seg !== ".") parts.push(seg); }
+  return parts.join("/");
+}
+function relsOf(doc, base) {
+  const map = {};
+  if (doc) for (const r of Array.from(doc.getElementsByTagName("Relationship"))) {
+    const ext = r.getAttribute("TargetMode") === "External";
+    map[r.getAttribute("Id")] = { target: ext ? r.getAttribute("Target") : resolvePath(base, r.getAttribute("Target")), external: ext, type: r.getAttribute("Type") || "" };
+  }
+  return map;
+}
+async function loadPptx(buf) {
+  const zip = await JSZip.loadAsync(buf);
+  const parts = {};
+  const read = async (p) => { const f = zip.file(p); if (f && !parts[p]) parts[p] = new DOMParser().parseFromString(await f.async("string"), "application/xml"); return parts[p]; };
+  const pres = await read("ppt/presentation.xml");
+  if (!pres) throw new Error("This doesn't look like a PowerPoint file (no presentation.xml inside).");
+  await read("docProps/core.xml");
+  const presRels = relsOf(await read("ppt/_rels/presentation.xml.rels"), "ppt/presentation.xml");
+  const slides = [];
+  for (const sid of pEls(pres, "sldId")) {
+    const rel = presRels[rAttr(sid, "id")]; if (!rel) continue;
+    const path = rel.target; const doc = await read(path); if (!doc) continue;
+    const relPath = path.replace(/([^/]+)$/, "_rels/$1.rels");
+    slides.push({ path, doc, rels: relsOf(await read(relPath), path) });
+  }
+  return { zip, parts, slides, pres };
+}
+const shapeText = (n) => aEls(n, "p").map((p) => aEls(p, "t").map((t) => t.textContent).join("")).filter((x) => x.trim()).join("\n");
+function phType(sp) { const nv = kid(sp, PNS, "nvSpPr"); const nvPr = kid(nv, PNS, "nvPr"); const ph = kid(nvPr, PNS, "ph"); return ph ? (ph.getAttribute("type") || "body") : null; }
+function analyzePptx(pkg) {
+  const { zip, parts, slides, pres } = pkg;
+  const issues = [];
+  const core = parts["docProps/core.xml"];
+  const info = slides.map((sl, i) => {
+    const tree = pEls(sl.doc, "spTree")[0];
+    const titleSp = tree ? pEls(tree, "sp").find((sp) => ["title", "ctrTitle"].includes(phType(sp))) : null;
+    return { ...sl, n: i + 1, tree, titleSp, title: titleSp ? shapeText(titleSp).replace(/\s+/g, " ").trim() : "" };
+  });
+
+  // Presentation title
+  if (core) {
+    let titleEl = core.getElementsByTagNameNS(NS.dc, "title")[0];
+    const cur = titleEl ? titleEl.textContent.trim() : "";
+    if (!cur || /^powerpoint presentation$/i.test(cur)) {
+      issues.push({ id: "pptx-title", type: "review", kindLabel: "Title", title: "Add a presentation title",
+        detail: "Screen readers announce this when the file opens, and it becomes the PDF title if you export. Prefilled from the first slide.",
+        field: { label: "Presentation title", value: (info[0] && info[0].title) || "", multiline: false },
+        apply: (s) => { const v = s.field.value.trim(); if (!v) return false; if (!titleEl) { titleEl = core.createElementNS(NS.dc, "dc:title"); core.documentElement.appendChild(titleEl); } titleEl.textContent = v; return `Set presentation title to "${v}"`; } });
+    }
+  }
+
+  // Default language
+  const defR = pres ? aEls(pres, "defRPr")[0] : null;
+  if (defR && !defR.getAttribute("lang")) {
+    issues.push({ id: "pptx-lang", type: "auto", enabled: true, title: "Set the default language to English (US)",
+      detail: "Screen readers use the language setting to choose the right voice and pronunciation.",
+      apply: () => { defR.setAttribute("lang", "en-US"); return "Set default language to English (US)"; } });
+  }
+
+  // Slide titles
+  const noTitle = info.filter((x) => !x.title);
+  if (noTitle.length) issues.push({ id: "pptx-notitle", type: "advice", title: `${noTitle.length} slide${noTitle.length > 1 ? "s have" : " has"} no title`,
+    detail: `Slide${noTitle.length > 1 ? "s" : ""} ${noTitle.map((x) => x.n).join(", ")}. Screen reader users move through a deck by slide titles. Add a title using the slide's title placeholder (Home, then Layout, then pick a layout with a title). If you don't want it visible, drag it just off the slide edge; it is still read aloud.` });
+  const seen = {}; info.forEach((x) => { if (x.title) (seen[x.title.toLowerCase()] = seen[x.title.toLowerCase()] || []).push(x.n); });
+  const dups = Object.entries(seen).filter(([, v]) => v.length > 1);
+  if (dups.length) issues.push({ id: "pptx-duptitle", type: "advice", title: "Repeated slide titles",
+    detail: dups.map(([t, v]) => `"${info[v[0] - 1].title}" on slides ${v.join(", ")}`).join("; ") + ". Identical titles make slides hard to tell apart. Add (1), (2) or a short distinguishing word, like \"Example: two-sample t test (cont.)\"." });
+
+  // Reading order: title first
+  const reorder = info.filter((x) => {
+    if (!x.titleSp || !x.tree) return false;
+    const shapes = Array.from(x.tree.children).filter((c) => !["nvGrpSpPr", "grpSpPr", "extLst"].includes(c.localName));
+    return shapes.indexOf(x.titleSp) > 0;
+  });
+  if (reorder.length) issues.push({ id: "pptx-order", type: "auto", enabled: true, title: `Read the title first on ${reorder.length} slide${reorder.length > 1 ? "s" : ""}`,
+    detail: `Slide${reorder.length > 1 ? "s" : ""} ${reorder.map((x) => x.n).join(", ")}: screen readers follow the order shapes were added, so the title currently isn't read first. This moves it to the front of the reading order. It also sends the title behind other shapes, which only matters if something overlaps it.`,
+    apply: () => { reorder.forEach((x) => { const anchor = kid(x.tree, PNS, "grpSpPr") || kid(x.tree, PNS, "nvGrpSpPr"); x.tree.insertBefore(x.titleSp, anchor ? anchor.nextSibling : x.tree.firstChild); }); return `Moved the title first in reading order on ${reorder.length} slide${reorder.length > 1 ? "s" : ""}`; } });
+
+  // Tables
+  const tbls = [];
+  info.forEach((x) => aEls(x.doc, "tbl").forEach((t) => { const tp = kid(t, NS.a, "tblPr"); if (aEls(t, "tr").length >= 2 && !(tp && tp.getAttribute("firstRow") === "1")) tbls.push({ t, tp, n: x.n, doc: x.doc }); }));
+  if (tbls.length) issues.push({ id: "pptx-tables", type: "auto", enabled: true, title: `Mark the header row in ${tbls.length} table${tbls.length > 1 ? "s" : ""}`,
+    detail: `On slide${tbls.length > 1 ? "s" : ""} ${[...new Set(tbls.map((x) => x.n))].join(", ")}. Screen readers read the header with each cell only when the first row is marked as a header. Your table style may give that row header formatting. Uncheck this if a table has no header row.`,
+    apply: () => { tbls.forEach((x) => { let tp = x.tp; if (!tp) { tp = x.doc.createElementNS(NS.a, "a:tblPr"); x.t.insertBefore(tp, x.t.firstChild); } tp.setAttribute("firstRow", "1"); }); return `Marked header rows in ${tbls.length} table${tbls.length > 1 ? "s" : ""}`; } });
+
+  // Pictures and charts
+  let imgN = 0;
+  info.forEach((x) => {
+    const ctx = [x.title ? "Slide title: " + x.title : "", ...pEls(x.doc, "sp").filter((sp) => sp !== x.titleSp).map(shapeText)].filter(Boolean).join("\n").slice(0, 900);
+    const cands = [...pEls(x.doc, "pic").map((el) => ({ el, kind: "pic" })), ...pEls(x.doc, "graphicFrame").filter((g) => /chart/.test((aEls(g, "graphicData")[0] || { getAttribute: () => "" }).getAttribute("uri") || "")).map((el) => ({ el, kind: "chart" }))];
+    cands.forEach(({ el, kind }, j) => {
+      const nv = el.firstElementChild; const c = nv && kid(nv, PNS, "cNvPr"); if (!c) return;
+      const descr = (c.getAttribute("descr") || "").trim();
+      if (c.getElementsByTagNameNS("*", "decorative").length) return;
+      const weak = !descr || /^(picture|image|graphic|figure|chart|screenshot)\s*\d*$/i.test(descr) || /\.(png|jpe?g|gif|emf|wmf|svg|bmp|tiff?)$/i.test(descr) || /description automatically generated/i.test(descr);
+      if (!weak) return;
+      const video = el.getElementsByTagNameNS(NS.a, "videoFile").length || el.getElementsByTagNameNS("*", "media").length;
+      if (video) return;
+      imgN++;
+      const blip = aEls(el, "blip")[0]; const rel = blip ? x.rels[rAttr(blip, "embed")] : null;
+      const path = rel && !rel.external ? rel.target : null;
+      const ext = path ? (path.split(".").pop() || "").toLowerCase() : "";
+      const mime = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" }[ext];
+      const item = {
+        id: `pptx-img-${x.n}-${kind}-${j}`, type: "review", kindLabel: kind === "chart" ? "Chart" : "Image",
+        title: `Alt text for ${kind === "chart" ? "chart" : "image"} on slide ${x.n}${x.title ? " (" + (x.title.length > 40 ? x.title.slice(0, 40) + "…" : x.title) + ")" : ""}`,
+        detail: descr ? `Current alt text is "${descr.slice(0, 120)}", which doesn't describe the content.` : "This has no alt text, so screen readers skip it or read the file name.",
+        field: { label: "Alt text", value: "", multiline: true }, decorativeAllowed: true, decorative: false, context: ctx,
+        preview: { kind: "image", path, mime, note: kind === "chart" ? "This is a native PowerPoint chart, which can't be previewed here. Describe what it shows." : (!mime ? `This image is a .${ext || "?"} file, which can't be previewed here.` : "") },
+        apply: (s) => {
+          if (s.decorative) {
+            c.setAttribute("descr", "");
+            let lst = kid(c, NS.a, "extLst"); if (!lst) { lst = x.doc.createElementNS(NS.a, "a:extLst"); c.appendChild(lst); }
+            const e = x.doc.createElementNS(NS.a, "a:ext"); e.setAttribute("uri", "{C183D7F6-B498-43B3-948B-1728B52AA6E4}");
+            const d = x.doc.createElementNS("http://schemas.microsoft.com/office/drawing/2017/decorative", "adec:decorative"); d.setAttribute("val", "1");
+            e.appendChild(d); lst.appendChild(e); return `Marked ${kind} on slide ${x.n} as decorative`;
+          }
+          const v = s.field.value.trim(); if (!v) return false; c.setAttribute("descr", v); return `Added alt text to ${kind === "chart" ? "chart" : "image"} on slide ${x.n}`;
+        },
+      };
+      if (mime && path && zip.file(path)) {
+        item.getBlob = async () => new Blob([await zip.file(path).async("arraybuffer")], { type: mime });
+        item.ai = async (s) => { const r = await draftImageAlt(await s.getBlob(), s.context); if (r.kind === "decorative") { s.decorative = true; return ""; } if (r.kind === "equation") s.hint = "This looks like an equation saved as a picture. Retyping it with PowerPoint's equation editor (Insert, then Equation) makes the math itself readable."; return r.alt; };
+      }
+      issues.push(item);
+    });
+  });
+
+  // Links
+  info.forEach((x) => aEls(x.doc, "r").forEach((r, j) => {
+    const rPr = kid(r, NS.a, "rPr"); const h = rPr && kid(rPr, NS.a, "hlinkClick"); if (!h) return;
+    const tEl = kid(r, NS.a, "t"); const t = tEl ? tEl.textContent.trim() : ""; if (!t) return;
+    const vague = /^(click here|here|link|this link|read more|more|this|go|website|page|click)$/i.test(t);
+    const urlish = /^(https?:\/\/|www\.)\S{30,}$/i.test(t);
+    if (!vague && !urlish) return;
+    const rel = x.rels[rAttr(h, "id")]; const target = rel ? rel.target : "";
+    issues.push({ id: `pptx-link-${x.n}-${j}`, type: "review", kindLabel: "Link", title: `Link text "${t.length > 40 ? t.slice(0, 40) + "…" : t}" on slide ${x.n}`,
+      detail: `Screen reader users often jump from link to link and hear only the link text. Say where it goes.${target ? " Link goes to: " + target : ""}`,
+      field: { label: "New link text", value: "", multiline: false, placeholder: "e.g. StatKey bootstrap applet" },
+      apply: (s) => { const v = s.field.value.trim(); if (!v) return false; tEl.textContent = v; return `Changed link text "${t}" to "${v}" on slide ${x.n}`; } });
+  }));
+
+  const vids = info.filter((x) => pEls(x.doc, "pic").some((pc) => pc.getElementsByTagNameNS(NS.a, "videoFile").length || pc.getElementsByTagNameNS("*", "media").length));
+  if (vids.length) issues.push({ id: "pptx-video", type: "advice", title: `Video on slide${vids.length > 1 ? "s" : ""} ${vids.map((x) => x.n).join(", ")}`,
+    detail: "Videos need captions. In PowerPoint, select the video, then Playback, then Insert Captions, or use a captioned version from YouTube or Mediasite." });
+  issues.push({ id: "pptx-contrast", type: "advice", title: "Check color contrast",
+    detail: "Slide backgrounds come from themes, so contrast can't be checked reliably from the file alone. In PowerPoint, use Review, then Check Accessibility; it flags hard-to-read text. Light gray on white and colored text on colored backgrounds are the usual problems." });
+  return issues;
+}
+async function exportPptx() {
+  const pkg = await loadPptx(state.buf);
+  const fresh = analyzePptx(pkg);
+  const log = [];
+  for (const f of fresh) {
+    const saved = state.issues.find((x) => x.id === f.id); if (!saved || f.type === "advice") continue;
+    if (f.type === "auto" && !saved.enabled) continue;
+    const res = f.apply(saved); if (res) log.push(res);
+  }
+  for (const [p, d] of Object.entries(pkg.parts)) {
+    if (p.endsWith(".rels")) continue;
+    const xml = new XMLSerializer().serializeToString(d).replace(/^<\?xml[^>]*\?>\s*/, "");
+    pkg.zip.file(p, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + xml);
+  }
+  const blob = await pkg.zip.generateAsync({ type: "blob", compression: "DEFLATE", mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation" });
+  return { blob, log };
+}
+
+/* ------------------------------------------------------------------ */
 /* Text formats: shared                                                 */
 /* ------------------------------------------------------------------ */
 function fenceRanges(text) {
@@ -932,6 +1112,12 @@ async function openFile(file, example = false) {
       for (const it of state.issues) if (it.preview && it.preview.path && it.preview.mime && pkg.zip.file(it.preview.path)) {
         it.preview.url = URL.createObjectURL(new Blob([await pkg.zip.file(it.preview.path).async("arraybuffer")], { type: it.preview.mime }));
       }
+    } else if (ext === "pptx") {
+      state.kind = "pptx"; state.buf = await file.arrayBuffer();
+      const pkg = await loadPptx(state.buf); state.issues = analyzePptx(pkg);
+      for (const it of state.issues) if (it.preview && it.preview.path && it.preview.mime && pkg.zip.file(it.preview.path)) {
+        it.preview.url = URL.createObjectURL(new Blob([await pkg.zip.file(it.preview.path).async("arraybuffer")], { type: it.preview.mime }));
+      }
     } else if (["rmd", "qmd", "md", "markdown"].includes(ext)) {
       state.kind = "md"; state.text = await file.text(); state.issues = analyzeRmd(state.text, ext);
     } else if (ext === "tex") {
@@ -940,10 +1126,10 @@ async function openFile(file, example = false) {
       state.kind = "pdf"; state.buf = await file.arrayBuffer(); await analyzePdf(state.buf);
     } else if (ext === "doc") {
       throw new Error("Old .doc files can't be fixed here. Open it in Word and use File, Save As, Word Document (.docx), then upload that.");
-    } else if (ext === "pptx") {
-      throw new Error("PowerPoint isn't supported yet. In PowerPoint, Review, then Check Accessibility, covers the same checks.");
+    } else if (ext === "ppt") {
+      throw new Error("Old .ppt files can't be fixed here. Open it in PowerPoint and use File, Save As, PowerPoint Presentation (.pptx), then upload that.");
     } else {
-      throw new Error("This file type isn't supported. Upload a .docx, .pdf, .Rmd, .qmd, .md, or .tex file.");
+      throw new Error("This file type isn't supported. Upload a .docx, .pptx, .pdf, .Rmd, .qmd, .md, or .tex file.");
     }
     render();
   } catch (e) {
@@ -961,7 +1147,7 @@ function render() {
   if (!state.name) return;
   if (state.kind === "pdf") return renderPdf();
   const auto = state.issues.filter((i) => i.type === "auto"), rev = state.issues.filter((i) => i.type === "review"), adv = state.issues.filter((i) => i.type === "advice");
-  const kindName = { docx: "Word document", md: state.ext === "qmd" ? "Quarto document" : state.ext === "rmd" ? "R Markdown document" : "Markdown document", tex: "LaTeX source" }[state.kind];
+  const kindName = { docx: "Word document", pptx: "PowerPoint deck", md: state.ext === "qmd" ? "Quarto document" : state.ext === "rmd" ? "R Markdown document" : "Markdown document", tex: "LaTeX source" }[state.kind];
   $("#results").innerHTML = `
     <div class="filebar">
       <div><span class="filename">${esc(state.name)}</span> <span class="tag">${kindName}</span>${state.example ? ' <span class="tag example">Example file</span>' : ""}</div>
@@ -1093,7 +1279,7 @@ function renderDock() {
   const pending = rev.filter((i) => i.ai && !reviewDone(i)).length;
   da.hidden = !(sampleFn && !aiBlocked && pending);
   da.textContent = `Draft ${pending} with Claude`;
-  cp.hidden = state.kind === "docx"; cp.textContent = "Copy fixed text";
+  cp.hidden = state.kind === "docx" || state.kind === "pptx"; cp.textContent = "Copy fixed text";
   const out = outName(); dl.textContent = "Download " + out; dl.disabled = false;
   const left = rev.filter((i) => !reviewDone(i)).length;
   setStatus(left ? `${left} review item${left > 1 ? "s" : ""} still blank. They'll be left unchanged unless you fill them in.` : "All review items are filled in.");
@@ -1105,7 +1291,7 @@ function renderPdf() {
   const pass = (ok, unk) => unk ? '<span class="pill unk">Unclear</span>' : ok ? '<span class="pill pass">Pass</span>' : '<span class="pill fail">Fix</span>';
   const srcTip = P.src === "LaTeX" ? "It was made with LaTeX. Uploading the .tex file is the cleanest fix: this tool can turn on tagging there and keep your exact layout." :
     P.src === "Word" ? "It was made with Word. Uploading the .docx is the cleanest fix, since this tool can repair Word files directly and keep your layout." :
-    P.src === "PowerPoint" ? "It was made with PowerPoint. Fix the slides in PowerPoint (Review, then Check Accessibility) and export again." : "";
+    P.src === "PowerPoint" ? "It was made with PowerPoint. Upload the .pptx here instead, fix it, and export a new PDF from PowerPoint." : "";
   const canRB = sampleFn && !aiBlocked;
   $("#results").innerHTML = `
     <div class="filebar"><div><span class="filename">${esc(state.name)}</span> <span class="tag">PDF, ${P.pages} page${P.pages > 1 ? "s" : ""}</span></div><span class="meta">${esc(P.creator)}</span></div>
@@ -1179,7 +1365,7 @@ async function save(filename, blob, msgEl) {
     setTimeout(() => URL.revokeObjectURL(url), 60000);
     (msgEl || $("#status")).textContent = `Saved ${filename} to your Downloads folder.`; return true;
   }
-  if (!downloadsApi) { (msgEl || $("#status")).textContent = state.kind === "docx" || state.kind === "pdf" ? "Downloads aren't available in this view. Open the page on claude.ai to download." : "Downloads aren't available in this view. Use Copy fixed text and paste it into your file."; return false; }
+  if (!downloadsApi) { (msgEl || $("#status")).textContent = ["docx", "pptx", "pdf"].includes(state.kind) ? "Downloads aren't available in this view. Open the page on claude.ai to download." : "Downloads aren't available in this view. Use Copy fixed text and paste it into your file."; return false; }
   try { await downloadsApi.save({ filename, data: blob }); (msgEl || $("#status")).textContent = `Saved ${filename}.`; return true; }
   catch (e) { (msgEl || $("#status")).textContent = e && e.code === "declined" ? "Download canceled." : "The download didn't go through. Try again."; return false; }
 }
@@ -1193,6 +1379,7 @@ $("#downloadBtn").addEventListener("click", async () => {
     }
     let blob, log;
     if (state.kind === "docx") ({ blob, log } = await exportDocx());
+    else if (state.kind === "pptx") ({ blob, log } = await exportPptx());
     else { const r = buildText(); log = r.log; blob = new Blob([r.text], { type: "text/plain" }); }
     const ok = await save(outName(), blob);
     if (ok || !downloadsApi) { state.log = log; const st = $("#status").textContent; render(); setStatus(st); }
