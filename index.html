@@ -197,6 +197,17 @@ body.no-ai .ai-only, body.ai .noai-only { display: none !important; }
 
   <div id="results" class="card" aria-live="polite"></div>
   <div id="groups" style="display:grid; gap:28px;"></div>
+  <footer class="card guide" aria-labelledby="afterH">
+    <h2 id="afterH" style="color:var(--ink)">Before you post to Carmen</h2>
+    <ul>
+      <li>Open the fixed Word or PowerPoint file and run <strong>Review, then Check Accessibility</strong>. It catches things a file can't show this tool, like contrast against theme colors.</li>
+      <li>For Carmen pages, assignments, and discussions, run Carmen's built-in <a href="https://teaching.resources.osu.edu/toolsets/carmencanvas/guides/improve-accessibility-carmen-rich/using-canvas-accessibility-checker">Accessibility Checker</a> before publishing.</li>
+      <li>Videos need closed captions, and audio-only files need a transcript.</li>
+      <li>Don't post scanned pages of books or printouts; screen readers can't read them.</li>
+      <li>More guidance: <a href="https://ets.osu.edu/digital-accessibility/carmen-canvas-accessibility-guides">Carmen Canvas Accessibility Guides</a> from Ohio State's Digital Accessibility team.</li>
+    </ul>
+    <p style="margin-top:8px">This is an independent tool, not an official university service. Alt text and other judgment calls always need a person to review them.</p>
+  </footer>
 </div>
 
 <div class="dockbar" id="dock" hidden>
@@ -265,7 +276,9 @@ function aiErrorText(e) {
   return e.message || "Claude could not draft this one. Type it yourself or try again.";
 }
 const ALT_RULES = `Rules:
-- Plots: name the plot type and what is on each axis or in each group, then the pattern a student is meant to notice (shape, center, spread, outliers, trend, direction and strength of association, group differences). 1 to 3 sentences.
+- Keep it to about 150 characters (Ohio State's alt text guideline). Describe what the image means in this lesson, not every visual detail.
+- Plots: name the plot type and the variables, then the main pattern a student is meant to notice (shape, center, spread, outliers, trend, association, group differences). For a complex plot, give that short summary only; details belong in the caption or text.
+- If the image contains words, include those words exactly.
 - Equations: write the math the way a professor reads it aloud, for example "x bar equals the sum of x sub i for i from 1 to n, divided by n".
 - Tables: say what the table shows and give its key values.
 - Do not begin with "Image of", "Picture of", or "Graph of". Plain text only: no Markdown, no LaTeX, no quotation marks.`;
@@ -618,7 +631,7 @@ async function exportDocx() {
   const fresh = analyzeDocx(pkg, false);
   const log = [];
   for (const f of fresh) {
-    const saved = state.issues.find((x) => x.id === f.id); if (!saved || f.type === "advice") continue;
+    const saved = state.issues.find((x) => x.id === f.id); if (!saved || f.type === "advice" || saved.needsApproval) continue;
     if (f.type === "auto" && !saved.enabled) continue;
     const res = f.apply(saved); if (res) log.push(res);
   }
@@ -796,7 +809,7 @@ async function exportPptx() {
   const fresh = analyzePptx(pkg);
   const log = [];
   for (const f of fresh) {
-    const saved = state.issues.find((x) => x.id === f.id); if (!saved || f.type === "advice") continue;
+    const saved = state.issues.find((x) => x.id === f.id); if (!saved || f.type === "advice" || saved.needsApproval) continue;
     if (f.type === "auto" && !saved.enabled) continue;
     const res = f.apply(saved); if (res) log.push(res);
   }
@@ -1142,7 +1155,7 @@ async function openFile(file, example = false) {
 /* ------------------------------------------------------------------ */
 /* Rendering                                                            */
 /* ------------------------------------------------------------------ */
-function reviewDone(it) { return it.decorative || !!(it.field && it.field.value.trim()); }
+function reviewDone(it) { return !it.needsApproval && (it.decorative || !!(it.field && it.field.value.trim())); }
 function render() {
   if (!state.name) return;
   if (state.kind === "pdf") return renderPdf();
@@ -1162,11 +1175,14 @@ function render() {
   if (rev.some((i) => i.field && i.field.multiline)) {
     const gd = document.createElement("details"); gd.className = "guide card";
     gd.innerHTML = `<summary>How to write alt text for a statistics graphic</summary><ul>
-      <li><strong>Start with the type and variables:</strong> "Histogram of commute time in minutes."</li>
-      <li><strong>Then the point:</strong> shape, center, spread, outliers, trend, or group differences. "Right-skewed; most students commute under 20 minutes, a few over an hour."</li>
+      <li><strong>Aim for about 150 characters.</strong> Say what the image means for the lesson, not every detail.</li>
+      <li><strong>Plots: type, variables, takeaway.</strong> "Histogram of commute times: right-skewed, most under 20 minutes, a few over an hour."</li>
+      <li><strong>Complex plots:</strong> keep the alt text short and put the full detail in a caption, the text beside the figure, or a data table, where every student can see it.</li>
       <li><strong>Equations:</strong> write them as you'd read them aloud. "z equals x minus mu, divided by sigma."</li>
-      <li><strong>Skip</strong> "Image of" and colors that don't carry meaning. One to three sentences is usually enough.</li>
-      <li><strong>Decorative</strong> pictures (borders, clip art) get no description: check the Decorative box.</li></ul>`;
+      <li><strong>Words in the image</strong> go in the alt text exactly as written.</li>
+      <li><strong>Skip</strong> "image of" and "picture of"; screen readers already say it's an image. Don't repeat what the nearby text already explains.</li>
+      <li><strong>Decorative</strong> pictures (borders, clip art) get no description: check the Decorative box.</li></ul>
+      <p style="margin-top:8px">Based on Ohio State's <a href="https://ets.osu.edu/digital-accessibility/alternative-alt-text-guide">Alternative (Alt) Text Guide</a>.</p>`;
     revGroup.insertBefore(gd, revGroup.querySelector(".list"));
   }
   g.appendChild(revGroup);
@@ -1227,7 +1243,8 @@ function reviewEl(it) {
         <div class="field"><label for="${fid}">${esc(f.label)}</label>${input}<span class="meta" id="${fid}-n" aria-live="off"></span></div>
         ${it.hint ? `<p class="hint">${esc(it.hint)}</p>` : ""}
         <div class="row">
-          ${canAI ? `<button type="button" class="secondary ai">Draft with Claude</button>` : ""}
+          ${it.needsApproval ? `<button type="button" class="approve">Approve draft</button>` : ""}
+          ${canAI ? `<button type="button" class="secondary ai">${it.needsApproval || f.value.trim() ? "Redraft" : "Draft with Claude"}</button>` : ""}
           ${it.decorativeAllowed ? `<label class="check" style="align-items:center"><input type="checkbox" class="deco" ${it.decorative ? "checked" : ""}> <span>Decorative, screen readers should skip it</span></label>` : ""}
         </div>
         <p class="meta msg" role="status"></p>
@@ -1235,8 +1252,10 @@ function reviewEl(it) {
       </div>
     </div>`;
   const el = d.querySelector("#" + CSS.escape(fid)); const cnt = d.querySelector("#" + CSS.escape(fid + "-n"));
-  const upd = () => { f.value = el.value; if (f.multiline) cnt.textContent = el.value.trim() ? `${el.value.trim().length} characters${el.value.trim().length > 300 ? ". Long descriptions are fine for complex plots, but keep the first sentence as the summary." : ""}` : ""; d.classList.toggle("done", reviewDone(it)); updateCounts(); };
+  const upd = (ev) => { if (ev && it.needsApproval) { it.needsApproval = false; const ab = d.querySelector(".approve"); if (ab) ab.remove(); const m = d.querySelector(".msg"); if (m) m.textContent = "Edited. This will be used."; } f.value = el.value; if (f.multiline) cnt.textContent = el.value.trim() ? `${el.value.trim().length} characters${el.value.trim().length > 160 ? ". Ohio State recommends about 150. Put extra detail in a caption or the text next to the figure." : ""}` : ""; d.classList.toggle("done", reviewDone(it)); updateCounts(); };
   el.addEventListener("input", upd); upd();
+  const ap = d.querySelector(".approve");
+  if (ap) ap.addEventListener("click", () => { it.needsApproval = false; ap.remove(); d.querySelector(".msg").textContent = "Approved. This will be used."; d.classList.toggle("done", reviewDone(it)); updateCounts(); });
   const deco = d.querySelector(".deco");
   if (deco) deco.addEventListener("change", () => { it.decorative = deco.checked; el.disabled = deco.checked; d.classList.toggle("done", reviewDone(it)); updateCounts(); });
   if (deco && it.decorative) el.disabled = true;
@@ -1249,9 +1268,11 @@ async function draftOne(it, d) {
   d = d || it._el; const btn = d.querySelector(".ai"); const msg = d.querySelector(".msg");
   btn && (btn.disabled = true); msg.textContent = "Claude is drafting…";
   try {
+    it.decorative = false;
     const v = await it.ai(it);
-    if (it.decorative) { msg.textContent = "Claude thinks this image is decorative. Uncheck the box if it carries information."; }
-    else { it.field.value = v; msg.textContent = "Draft ready. Edit it so it says what you want students to notice."; }
+    it.needsApproval = true;
+    if (it.decorative) { msg.textContent = "Claude thinks this image is decorative. Approve, or uncheck the box if it carries information."; }
+    else { it.field.value = v; msg.textContent = "Draft ready. Approve it or edit it. Drafts aren't saved into the file until you do."; }
     const fresh = reviewEl(it); d.replaceWith(fresh); fresh.querySelector(".msg").textContent = msg.textContent;
     updateCounts();
   } catch (e) { msg.textContent = aiErrorText(e); btn && (btn.disabled = false); }
@@ -1276,12 +1297,14 @@ function renderDock() {
   }
   dl.hidden = false;
   const rev = state.issues.filter((i) => i.type === "review");
-  const pending = rev.filter((i) => i.ai && !reviewDone(i)).length;
+  const pending = rev.filter((i) => i.ai && !reviewDone(i) && !i.needsApproval).length;
   da.hidden = !(sampleFn && !aiBlocked && pending);
   da.textContent = `Draft ${pending} with Claude`;
   cp.hidden = state.kind === "docx" || state.kind === "pptx"; cp.textContent = "Copy fixed text";
   const out = outName(); dl.textContent = "Download " + out; dl.disabled = false;
   const left = rev.filter((i) => !reviewDone(i)).length;
+  const waiting = rev.filter((i) => i.needsApproval).length;
+  if (waiting) { setStatus(`${waiting} Claude draft${waiting > 1 ? "s are" : " is"} waiting for your approval and won't be saved into the file until approved or edited.`); return; }
   setStatus(left ? `${left} review item${left > 1 ? "s" : ""} still blank. They'll be left unchanged unless you fill them in.` : "All review items are filled in.");
 }
 function outName() { const base = state.name.replace(/\.[^.]+$/, ""); return `${base}-accessible.${state.kind === "pdf" ? "html" : state.name.split(".").pop()}`; }
@@ -1348,7 +1371,7 @@ function renderPdf() {
 function buildText() {
   const edits = [], yamlLines = [], log = [];
   for (const it of state.issues) {
-    if (it.type === "advice" || (it.type === "auto" && !it.enabled)) continue;
+    if (it.type === "advice" || it.needsApproval || (it.type === "auto" && !it.enabled)) continue;
     if (it.yaml) { const l = it.yaml(it); if (l) { yamlLines.push(l); log.push(it.logText(it)); } continue; }
     if (it.edits) { const e = it.edits(it); if (e.length) { edits.push(...e); log.push(it.logText(it)); } }
   }
@@ -1393,12 +1416,12 @@ $("#copyBtn").addEventListener("click", async () => {
 });
 $("#draftAll").addEventListener("click", async () => {
   const btn = $("#draftAll"); btn.disabled = true;
-  const todo = state.issues.filter((i) => i.type === "review" && i.ai && !reviewDone(i));
+  const todo = state.issues.filter((i) => i.type === "review" && i.ai && !reviewDone(i) && !i.needsApproval);
   for (let k = 0; k < todo.length; k++) {
     if (aiBlocked) break;
     setStatus(`Drafting ${k + 1} of ${todo.length}…`);
     const it = todo[k]; const msg = it._el.querySelector(".msg");
-    try { const v = await it.ai(it); if (!it.decorative) it.field.value = v; const fresh = reviewEl(it); it._el.replaceWith(fresh); fresh.querySelector(".msg").textContent = it.decorative ? "Claude thinks this is decorative. Uncheck if it carries information." : "Draft ready. Check it."; }
+    try { it.decorative = false; const v = await it.ai(it); it.needsApproval = true; if (!it.decorative) it.field.value = v; const old = it._el; const fresh = reviewEl(it); old.replaceWith(fresh); fresh.querySelector(".msg").textContent = it.decorative ? "Claude thinks this is decorative. Approve, or uncheck if it carries information." : "Draft ready. Approve it or edit it."; }
     catch (e) { msg.textContent = aiErrorText(e); if (e && e.code === "rate_limited") break; }
   }
   btn.disabled = false; updateCounts();
