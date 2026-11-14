@@ -665,9 +665,9 @@ async function exportDocx() {
   const before = {}; for (const p of DOCX_PARTS) if (pkg.parts[p]) before[p] = ser(pkg.parts[p]);
   const log = [];
   for (const f of fresh) {
-    const saved = state.issues.find((x) => x.id === f.id); if (!saved || f.type === "advice" || saved.needsApproval) continue;
+    const saved = state.issues.find((x) => x.id === f.id); if (!saved || f.type === "advice") continue;
     if (f.type === "auto" && !saved.enabled) continue;
-    const res = f.apply(saved); if (res) log.push(res);
+    const res = f.apply(saved); if (res) log.push(res + (saved.needsApproval ? UNREV : ""));
   }
   for (const p of DOCX_PARTS) if (pkg.parts[p]) {
     const now = ser(pkg.parts[p]); if (now === before[p]) continue;
@@ -877,9 +877,9 @@ async function exportPptx() {
   const before = {}; for (const [p, d] of Object.entries(pkg.parts)) before[p] = ser(d);
   const log = [];
   for (const f of fresh) {
-    const saved = state.issues.find((x) => x.id === f.id); if (!saved || f.type === "advice" || saved.needsApproval) continue;
+    const saved = state.issues.find((x) => x.id === f.id); if (!saved || f.type === "advice") continue;
     if (f.type === "auto" && !saved.enabled) continue;
-    const res = f.apply(saved); if (res) log.push(res);
+    const res = f.apply(saved); if (res) log.push(res + (saved.needsApproval ? UNREV : ""));
   }
   for (const [p, d] of Object.entries(pkg.parts)) {
     if (p.endsWith(".rels")) continue;
@@ -937,13 +937,20 @@ function analyzeRmd(text, ext) {
       detail: "Adds lang: en-US to the YAML header so HTML and PDF output declare their language.", yaml: () => "lang: en-US", logText: () => "Added lang: en-US" });
   }
   const pdfOnly = (/pdf_document|beamer_presentation|^\s*format\s*:\s*pdf|^\s*pdf\s*:|^\s*beamer\s*:/m.test(yaml)) && !/html|revealjs|ioslides|slidy/.test(yaml);
-  if (pdfOnly) issues.push({ id: "md-pdfonly", type: "advice", title: "Output is PDF only",
+  const outLine = yaml.match(/^(output|format)[ \t]*:[ \t]*(pdf_document|pdf)[ \t]*$/m);
+  if (pdfOnly && ym && outLine) {
+    const st = ym[0].indexOf(outLine[0]); const isFmt = outLine[1] === "format";
+    issues.push({ id: "md-pdfonly", type: "auto", enabled: true, title: "Also produce an HTML version",
+      detail: `Changes "${outLine[0].trim()}" so the file renders to both HTML and PDF. PDFs from ${isQmd ? "Quarto" : "R Markdown"} aren't fully tagged and screen readers garble their math; the HTML version reads equations aloud correctly and is the one to post in Carmen.`,
+      edits: () => [{ start: st, end: st + outLine[0].length, text: isFmt ? "format:\n  html: default\n  pdf: default" : "output:\n  html_document: default\n  pdf_document: default" }],
+      logText: () => "Added HTML output alongside PDF" });
+  } else if (pdfOnly) issues.push({ id: "md-pdfonly", type: "advice", title: "Output is PDF only",
     detail: isQmd ? "PDFs from Quarto aren't fully tagged, so screen readers struggle with them, especially the math. Add html as a second format (format: html plus your pdf options); the HTML version reads equations aloud correctly and is the version to post in Carmen." :
       "PDFs from R Markdown aren't fully tagged, so screen readers struggle with them, especially the math. Add html_document as a second output; the HTML version reads equations aloud correctly and is the version to post in Carmen." });
 
   // Plot chunks
   const chunkRe = /^(`{3,})[ \t]*\{(r|R|python)\b([^}\n]*)\}[^\n]*\n([\s\S]*?)^\1[ \t]*$/gm;
-  let m, plotN = 0, redGreen = 0;
+  let m, plotN = 0, redGreen = 0; const colorEdits = [];
   while ((m = chunkRe.exec(text))) {
     const lang = m[2].toLowerCase() === "python" ? "Python" : "R";
     const opts = m[3], body = m[4];
@@ -951,7 +958,7 @@ function analyzeRmd(text, ext) {
     const braceClose = m.index + text.slice(m.index, headerEnd).lastIndexOf("}");
     if (/include\s*=\s*F(ALSE)?\b|eval\s*=\s*F(ALSE)?\b|fig\.show\s*=\s*['"]hide/.test(opts) || /^#\|\s*(include|eval)\s*:\s*false/m.test(body)) continue;
     if (!PLOT_RE.test(body)) continue;
-    if (/(['"])(red|green)\1[\s\S]*(['"])(red|green)\3/.test(body) && /['"]red['"]/.test(body) && /['"]green['"]/.test(body)) redGreen++;
+    if (/['"]red['"]/.test(body) && /['"]green['"]/.test(body)) { redGreen++; const bodyStart = headerEnd + 1; let mm; const cr = /(['"])(red|green)\1/g; while ((mm = cr.exec(body))) colorEdits.push({ start: bodyStart + mm.index, end: bodyStart + mm.index + mm[0].length, text: mm[1] + (mm[2] === "red" ? "#D55E00" : "#009E73") + mm[1] }); }
     if (/fig[.-]alt/.test(opts) || /^#\|\s*fig[.-]alt\s*:/m.test(body)) continue;
     plotN++;
     const label = (opts.match(/^\s*,?\s*([A-Za-z0-9_.-]+)\s*(,|$)/) || body.match(/^#\|\s*label\s*:\s*(\S+)/m) || [])[1];
@@ -968,8 +975,9 @@ function analyzeRmd(text, ext) {
         return useQ ? [{ start: headerEnd + 1, end: headerEnd + 1, text: "#| fig-alt: " + yamlStr(v) + "\n" }] : [{ start: braceClose, end: braceClose, text: ', fig.alt="' + stripQuotes(v).replace(/\\/g, "\\\\") + '"' }]; },
       logText: (s) => `Added alt text to ${s.title.replace("Alt text for ", "")}` });
   }
-  if (redGreen) issues.push({ id: "md-redgreen", type: "advice", title: `${redGreen} plot${redGreen > 1 ? "s use" : " uses"} red and green together`,
-    detail: "About 1 in 12 men can't tell red from green. Use a colorblind-safe palette, such as scale_color_viridis_d() in ggplot2, the Okabe-Ito colors (palette.colors() in base R), or add shapes or line types so color isn't the only cue." });
+  if (redGreen) issues.push({ id: "md-redgreen", type: "auto", enabled: true, title: `Swap red and green for colorblind-safe colors in ${redGreen} plot${redGreen > 1 ? "s" : ""}`,
+    detailHtml: `About 1 in 12 men can't tell red from green. "red" becomes <span class="swatch" style="background:#D55E00"></span> <span class="mono">#D55E00</span> and "green" becomes <span class="swatch" style="background:#009E73"></span> <span class="mono">#009E73</span>, from the Okabe-Ito palette, which stays distinct for common types of color blindness. If your text says "the red group", update that wording too.`,
+    edits: () => colorEdits.map((e) => ({ ...e })), logText: () => `Swapped red/green for colorblind-safe colors in ${redGreen} plot${redGreen > 1 ? "s" : ""}` });
 
   // Markdown images
   const imgRe = /!\[([^\]]*)\]\(([^)\s]+)[^)]*\)(\{[^}\n]*\})?/g;
@@ -1078,12 +1086,17 @@ function analyzeTex(text) {
   const tikz = (text.match(/\\begin\{tikzpicture\}/g) || []).length;
   if (tikz) issues.push({ id: "tex-tikz", type: "advice", title: `${tikz} TikZ drawing${tikz > 1 ? "s" : ""}`,
     detail: "TikZ graphics have no text alternative. Add a sentence in the text that states what each drawing shows, or wrap it as a figure with a descriptive caption." });
-  const light = (text.match(/\\(textcolor|color)\{(yellow|cyan|lime|pink|orange|lightgray|white|green)\}/g) || []).length;
-  if (light) issues.push({ id: "tex-color", type: "advice", title: `${light} use${light > 1 ? "s" : ""} of light text colors`,
-    detail: "Colors like yellow, cyan, lime, and pure green fall below the 4.5 to 1 contrast minimum on white. Switch to darker shades (for example blue!70!black) and don't use color as the only way to mark something." });
-  const fakeH = (text.match(/^\s*(\\noindent\s*)?\\textbf\{[^{}\n]{2,80}\}\s*(\\\\)?\s*$/gm) || []).length;
-  if (fakeH) issues.push({ id: "tex-fakeh", type: "advice", title: `${fakeH} bold line${fakeH > 1 ? "s" : ""} used as heading${fakeH > 1 ? "s" : ""}`,
-    detail: "Lines like \\textbf{Problem 1} look like headings but aren't tagged as headings. Use \\section*{Problem 1} or \\subsection*{...} so students can jump between problems." });
+  const DARK = { yellow: "yellow!45!black", cyan: "cyan!50!black", lime: "lime!40!black", pink: "magenta!70!black", orange: "orange!65!black", lightgray: "darkgray", green: "green!50!black" };
+  const lightEd = []; { const cr = /\\(textcolor|color)\{(yellow|cyan|lime|pink|orange|lightgray|green)\}/g; let mm; while ((mm = cr.exec(text))) if (!commented(text, mm.index)) { const st = mm.index + mm[0].indexOf("{") + 1; lightEd.push({ start: st, end: st + mm[2].length, text: DARK[mm[2]], from: mm[2] }); } }
+  if (lightEd.length) issues.push({ id: "tex-color", type: "auto", enabled: true, title: `Darken ${lightEd.length} light text color${lightEd.length > 1 ? "s" : ""}`,
+    detailHtml: "Yellow, cyan, lime, pink, orange, light gray, and pure green fall below the 4.5 to 1 contrast minimum on white. Each becomes a darker shade of the same color: " + [...new Set(lightEd.map((e) => e.from))].map((c) => `<span class="mono">${c}</span> → <span class="mono">${DARK[c]}</span>`).join(", ") + ".",
+    edits: () => lightEd.map(({ start, end, text }) => ({ start, end, text })), logText: () => `Darkened ${lightEd.length} light text color${lightEd.length > 1 ? "s" : ""}` });
+  const fh = []; { const fr = /^[ \t]*(\\noindent\s*)?\\textbf\{([^{}\n]{2,80})\}[ \t]*(\\\\)?[ \t]*$/gm; let mm; while ((mm = fr.exec(text))) if (!/[.;,]$/.test(mm[2].trim()) && !commented(text, mm.index)) fh.push({ start: mm.index, end: mm.index + mm[0].length, t: mm[2].trim() }); }
+  if (fh.length) issues.push({ id: "tex-fakeh", type: "auto", enabled: true, title: `Turn ${fh.length} bold line${fh.length > 1 ? "s" : ""} into real headings`,
+    detail: "Lines like \\textbf{Problem 1} look like headings but aren't tagged as headings, so students can't jump between problems. Each becomes \\subsection*{...}, which looks a little larger. Uncheck any that aren't headings.",
+    subs: fh.map((h) => ({ label: `\\textbf{${h.t}}  →  \\subsection*{${h.t}}`, enabled: true })),
+    edits: (s) => fh.filter((h, i) => s.subs[i].enabled).map((h) => ({ start: h.start, end: h.end, text: `\\subsection*{${h.t}}` })),
+    logText: (s) => { const k = s.subs.filter((x) => x.enabled).length; return `Turned ${k} bold line${k > 1 ? "s" : ""} into headings`; } });
   return issues;
 }
 
@@ -1185,7 +1198,7 @@ function updatePreview() { const pv = $("#mdPreview"); if (pv) pv.innerHTML = ma
 /* ------------------------------------------------------------------ */
 /* Loading files                                                        */
 /* ------------------------------------------------------------------ */
-async function openFile(file, example = false) {
+async function openFile(file, example = false, auto = false) {
   const name = file.name; const ext = (name.split(".").pop() || "").toLowerCase();
   Object.assign(state, { name, ext, example, issues: [], pdf: null, text: null, buf: null, md: "", log: null });
   $("#results").innerHTML = `<p>Checking <span class="filename">${esc(name)}</span>…</p>`;
@@ -1217,6 +1230,10 @@ async function openFile(file, example = false) {
       throw new Error("This file type isn't supported. Upload a .docx, .pptx, .pdf, .Rmd, .qmd, .md, or .tex file.");
     }
     render();
+    if (auto && aiOn()) {
+      if (state.kind === "pdf") { if (!state.pdf.tagged || state.pdf.scanned) rebuildPdf(); }
+      else if (state.issues.some((i) => i.type === "review" && i.ai && !reviewDone(i))) $("#draftAll").click();
+    }
   } catch (e) {
     console.error(e);
     $("#results").innerHTML = `<p><strong>Couldn't read this file.</strong> ${esc(e.message || e)}</p>`;
@@ -1227,7 +1244,9 @@ async function openFile(file, example = false) {
 /* ------------------------------------------------------------------ */
 /* Rendering                                                            */
 /* ------------------------------------------------------------------ */
-function reviewDone(it) { return !it.needsApproval && (it.decorative || !!(it.field && it.field.value.trim())); }
+function reviewDone(it) { return it.decorative || !!(it.field && it.field.value.trim()); }
+const reviewedByPerson = (it) => reviewDone(it) && !it.needsApproval;
+const UNREV = " (Claude's fix, not reviewed by a person)";
 function render() {
   if (!state.name) return;
   if (state.kind === "pdf") return renderPdf();
@@ -1239,11 +1258,11 @@ function render() {
     </div>
     <div class="tiles">
       <div class="tile ok"><div class="n" id="tAuto">${auto.filter((a) => a.enabled).length}</div><div class="l">fixes ready to apply</div></div>
-      <div class="tile warn"><div class="n"><span id="tRev">${rev.filter(reviewDone).length}</span> / ${rev.length}</div><div class="l">items reviewed</div></div>
+      <div class="tile warn"><div class="n"><span id="tRev">${rev.filter(reviewedByPerson).length}</span> / ${rev.length}</div><div class="l">reviewed by a person</div></div>
       <div class="tile info"><div class="n">${adv.length}</div><div class="l">tips to do by hand</div></div>
     </div>`;
   const g = $("#groups"); g.innerHTML = "";
-  const revGroup = groupEl("Needs your review", aiOn() ? "Click Suggest fixes and Claude proposes an edit for each item. Approve, edit, or reject each one; only what you approve goes into the file. Items left blank aren't changed." : "Fill in each of these. Say what a student should take away, not only what the picture looks like. Items left blank aren't changed.", rev, reviewEl, "Nothing needs review.");
+  const revGroup = groupEl("Needs your review", aiOn() ? "Claude fills in each of these as soon as you open a file, and its fixes go into the download unless you reject them. Read each one, edit anything that's off, and click Mark as reviewed so the change list shows a person checked it." : "Fill in each of these. Say what a student should take away, not only what the picture looks like. Items left blank aren't changed.", rev, reviewEl, "Nothing needs review.");
   if (rev.some((i) => i.field && i.field.multiline)) {
     const gd = document.createElement("details"); gd.className = "guide card";
     gd.innerHTML = `<summary>How to write alt text for a statistics graphic</summary><ul>
@@ -1295,7 +1314,7 @@ function adviceEl(it) {
   return d;
 }
 function reviewEl(it) {
-  const d = document.createElement("div"); d.className = "item review" + (reviewDone(it) ? " done" : "");
+  const d = document.createElement("div"); d.className = "item review" + (reviewedByPerson(it) ? " done" : "");
   const fid = "f-" + it.id;
   let prev = "";
   if (it.preview) {
@@ -1315,7 +1334,7 @@ function reviewEl(it) {
         <div class="field"><label for="${fid}">${esc(f.label)}</label>${input}<span class="meta" id="${fid}-n" aria-live="off"></span></div>
         ${it.hint ? `<p class="hint">${esc(it.hint)}</p>` : ""}
         <div class="row">
-          ${it.needsApproval ? `<button type="button" class="approve">Approve</button><button type="button" class="quiet reject">Reject</button>` : ""}
+          ${it.needsApproval ? `<button type="button" class="approve">Mark as reviewed</button><button type="button" class="quiet reject">Reject</button>` : ""}
           ${canAI ? `<button type="button" class="secondary ai">${it.needsApproval || f.value.trim() ? "Suggest another" : "Suggest with Claude"}</button>` : ""}
           ${it.decorativeAllowed ? `<label class="check" style="align-items:center"><input type="checkbox" class="deco" ${it.decorative ? "checked" : ""}> <span>Decorative, screen readers should skip it</span></label>` : ""}
         </div>
@@ -1324,14 +1343,14 @@ function reviewEl(it) {
       </div>
     </div>`;
   const el = d.querySelector("#" + CSS.escape(fid)); const cnt = d.querySelector("#" + CSS.escape(fid + "-n"));
-  const upd = (ev) => { if (ev && it.needsApproval) { it.needsApproval = false; const ab = d.querySelector(".approve"); if (ab) ab.remove(); const rb = d.querySelector(".reject"); if (rb) rb.remove(); const m = d.querySelector(".msg"); if (m) m.textContent = "Edited. This will be used."; } f.value = el.value; if (f.multiline) cnt.textContent = el.value.trim() ? `${el.value.trim().length} characters${el.value.trim().length > 160 ? ". Ohio State recommends about 150. Put extra detail in a caption or the text next to the figure." : ""}` : ""; d.classList.toggle("done", reviewDone(it)); updateCounts(); };
+  const upd = (ev) => { if (ev && it.needsApproval) { it.needsApproval = false; const ab = d.querySelector(".approve"); if (ab) ab.remove(); const rb = d.querySelector(".reject"); if (rb) rb.remove(); const m = d.querySelector(".msg"); if (m) m.textContent = "Edited and reviewed. Your version will be used."; } f.value = el.value; if (f.multiline) cnt.textContent = el.value.trim() ? `${el.value.trim().length} characters${el.value.trim().length > 160 ? ". Ohio State recommends about 150. Put extra detail in a caption or the text next to the figure." : ""}` : ""; d.classList.toggle("done", reviewedByPerson(it)); updateCounts(); };
   el.addEventListener("input", upd); upd();
   const ap = d.querySelector(".approve");
   const rj = d.querySelector(".reject");
-  if (rj) rj.addEventListener("click", () => { it.needsApproval = false; it.decorative = false; it.field.value = ""; const fresh = reviewEl(it); d.replaceWith(fresh); fresh.querySelector(".msg").textContent = "Suggestion rejected. Nothing will change here unless you type something."; updateCounts(); });
-  if (ap) ap.addEventListener("click", () => { it.needsApproval = false; ap.remove(); rj && rj.remove(); d.querySelector(".msg").textContent = "Approved. This will be used."; d.classList.toggle("done", reviewDone(it)); updateCounts(); });
+  if (rj) rj.addEventListener("click", () => { it.needsApproval = false; it.decorative = false; it.field.value = ""; const fresh = reviewEl(it); d.replaceWith(fresh); fresh.querySelector(".msg").textContent = "Rejected. Nothing will change here unless you type something."; updateCounts(); });
+  if (ap) ap.addEventListener("click", () => { it.needsApproval = false; ap.remove(); rj && rj.remove(); d.querySelector(".msg").textContent = "Reviewed. This will be used."; d.classList.toggle("done", reviewedByPerson(it)); updateCounts(); });
   const deco = d.querySelector(".deco");
-  if (deco) deco.addEventListener("change", () => { it.decorative = deco.checked; el.disabled = deco.checked; d.classList.toggle("done", reviewDone(it)); updateCounts(); });
+  if (deco) deco.addEventListener("change", () => { it.decorative = deco.checked; el.disabled = deco.checked; d.classList.toggle("done", reviewedByPerson(it)); updateCounts(); });
   if (deco && it.decorative) el.disabled = true;
   const btn = d.querySelector(".ai");
   if (btn) btn.addEventListener("click", () => draftOne(it, d));
@@ -1345,8 +1364,8 @@ async function draftOne(it, d) {
     it.decorative = false;
     const v = await it.ai(it);
     it.needsApproval = true;
-    if (it.decorative) { msg.textContent = "Claude thinks this image is decorative. Approve, or uncheck the box if it carries information."; }
-    else { it.field.value = v; msg.textContent = "Suggested edit. Approve it, edit it, or reject it. Nothing changes in the file until you approve or edit."; }
+    if (it.decorative) { msg.textContent = "Claude marked this image decorative. Uncheck the box if it carries information."; }
+    else { it.field.value = v; msg.textContent = "Claude's fix. It goes into the file unless you edit or reject it."; }
     const fresh = reviewEl(it); d.replaceWith(fresh); fresh.querySelector(".msg").textContent = msg.textContent;
     updateCounts();
   } catch (e) { msg.textContent = aiErrorText(e); btn && (btn.disabled = false); }
@@ -1354,7 +1373,7 @@ async function draftOne(it, d) {
 function updateCounts() {
   const a = $("#tAuto"), r = $("#tRev");
   if (a) a.textContent = state.issues.filter((i) => i.type === "auto" && i.enabled).length;
-  if (r) r.textContent = state.issues.filter((i) => i.type === "review").filter(reviewDone).length;
+  if (r) r.textContent = state.issues.filter((i) => i.type === "review").filter(reviewedByPerson).length;
   renderDock();
 }
 function renderDock() {
@@ -1378,7 +1397,7 @@ function renderDock() {
   const out = outName(); dl.textContent = "Download " + out; dl.disabled = false;
   const left = rev.filter((i) => !reviewDone(i)).length;
   const waiting = rev.filter((i) => i.needsApproval).length;
-  if (waiting) { setStatus(`${waiting} suggested edit${waiting > 1 ? "s are" : " is"} waiting for you to approve, edit, or reject. Unapproved suggestions aren't saved into the file.`); return; }
+  if (waiting) { setStatus(`Claude fixed ${waiting} item${waiting > 1 ? "s" : ""} that no one has reviewed yet. They go into the download unless you reject them.`); return; }
   setStatus(left ? `${left} review item${left > 1 ? "s" : ""} still blank. They'll be left unchanged unless you fill them in.` : "All review items are filled in.");
 }
 function outName() { const base = state.name.replace(/\.[^.]+$/, ""); return `${base}-accessible.${state.kind === "pdf" ? "html" : state.name.split(".").pop()}`; }
@@ -1445,9 +1464,10 @@ function renderPdf() {
 function buildText() {
   const edits = [], yamlLines = [], log = [];
   for (const it of state.issues) {
-    if (it.type === "advice" || it.needsApproval || (it.type === "auto" && !it.enabled)) continue;
-    if (it.yaml) { const l = it.yaml(it); if (l) { yamlLines.push(l); log.push(it.logText(it)); } continue; }
-    if (it.edits) { const e = it.edits(it); if (e.length) { edits.push(...e); log.push(it.logText(it)); } }
+    if (it.type === "advice" || (it.type === "auto" && !it.enabled)) continue;
+    const tag = it.needsApproval ? UNREV : "";
+    if (it.yaml) { const l = it.yaml(it); if (l) { yamlLines.push(l); log.push(it.logText(it) + tag); } continue; }
+    if (it.edits) { const e = it.edits(it); if (e.length) { edits.push(...e); log.push(it.logText(it) + tag); } }
   }
   if (yamlLines.length) {
     const yi = state.yamlInfo || { exists: false, insertAt: 0 };
@@ -1495,7 +1515,7 @@ $("#draftAll").addEventListener("click", async () => {
     if (aiBlocked) break;
     setStatus(`Drafting ${k + 1} of ${todo.length}…`);
     const it = todo[k]; const msg = it._el.querySelector(".msg");
-    try { it.decorative = false; const v = await it.ai(it); it.needsApproval = true; if (!it.decorative) it.field.value = v; const old = it._el; const fresh = reviewEl(it); old.replaceWith(fresh); fresh.querySelector(".msg").textContent = it.decorative ? "Claude thinks this is decorative. Approve, or uncheck if it carries information." : "Suggested edit. Approve, edit, or reject."; }
+    try { it.decorative = false; const v = await it.ai(it); it.needsApproval = true; if (!it.decorative) it.field.value = v; const old = it._el; const fresh = reviewEl(it); old.replaceWith(fresh); fresh.querySelector(".msg").textContent = it.decorative ? "Claude marked this decorative. Uncheck if it carries information." : "Claude's fix. It goes into the file unless you edit or reject it."; }
     catch (e) { msg.textContent = aiErrorText(e); if (e && e.code === "rate_limited") break; }
   }
   btn.disabled = false; updateCounts();
@@ -1504,11 +1524,11 @@ $("#draftAll").addEventListener("click", async () => {
 /* ------------------------------------------------------------------ */
 /* Upload wiring and examples                                           */
 /* ------------------------------------------------------------------ */
-$("#fileInput").addEventListener("change", (e) => { const f = e.target.files[0]; if (f) openFile(f); e.target.value = ""; });
+$("#fileInput").addEventListener("change", (e) => { const f = e.target.files[0]; if (f) openFile(f, false, true); e.target.value = ""; });
 const drop = $("#drop");
 ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
 ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
-drop.addEventListener("drop", (e) => { const f = e.dataTransfer.files[0]; if (f) openFile(f); });
+drop.addEventListener("drop", (e) => { const f = e.dataTransfer.files[0]; if (f) openFile(f, false, true); });
 
 const SAMPLE_RMD = `---
 author: "Department of Statistics"
@@ -1578,8 +1598,8 @@ By the Central Limit Theorem,
 Use the figure to explain how the shape changes as $n$ increases.
 \\end{document}
 `;
-$("#sampleRmd").addEventListener("click", () => openFile(new File([SAMPLE_RMD], "lab4-distributions.Rmd"), true));
-$("#sampleTex").addEventListener("click", () => openFile(new File([SAMPLE_TEX], "hw5-sampling.tex"), true));
+$("#sampleRmd").addEventListener("click", () => openFile(new File([SAMPLE_RMD], "lab4-distributions.Rmd"), true, true));
+$("#sampleTex").addEventListener("click", () => openFile(new File([SAMPLE_TEX], "hw5-sampling.tex"), true, true));
 setMode();
 openFile(new File([SAMPLE_RMD], "lab4-distributions.Rmd"), true);
 </script>
