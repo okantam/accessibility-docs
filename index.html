@@ -1416,11 +1416,21 @@ function analyzeTex(text) {
   if (dcPos < 0 || beginDoc < 0) issues.push({ id: "tex-fragment", type: "advice", title: "This file has no preamble",
     detail: "It looks like a chapter or part that's \\input into a main file. Alt text fixes below still work; upload the main .tex file to turn on tagging and set the title." });
 
+  const hasMath = /\$[^$]+\$|\\\[|\\\(|\\begin\{(equation|align|gather|multline|eqnarray|displaymath)\*?\}/.test(text);
+  const META = "\\DocumentMetadata{lang=en-US, pdfversion=2.0, pdfstandard=ua-2, testphase=latest}";
+  const MATHALT = "\\tagpdfsetup{math/alt/use}";
+  const afterDc = (() => { const e = text.indexOf("\n", dcPos); return e < 0 ? text.length : e + 1; })();
   if (dcPos >= 0 && !/\\DocumentMetadata/.test(text)) {
-    issues.push({ id: "tex-meta", type: "auto", enabled: !beamer, title: "Turn on PDF tagging and set the language",
-      detailHtml: `Adds <span class="mono">\\DocumentMetadata{lang=en-US, pdfversion=2.0, pdfstandard=ua-2, testphase=latest}</span> as the first line. This makes LaTeX produce a tagged PDF that screen readers can navigate. It needs TeX Live 2024 or newer; compile with <strong>LuaLaTeX</strong> so equations are tagged as real math. If an older package breaks the build, uncheck this and keep the other fixes.${beamer ? " <strong>Off by default because this is a Beamer file:</strong> Beamer doesn't support tagging yet. For slides, post an accessible HTML or Word version alongside the PDF." : ""}`,
-      edits: () => [{ start: dcPos, end: dcPos, text: "\\DocumentMetadata{lang=en-US, pdfversion=2.0, pdfstandard=ua-2, testphase=latest}\n" }],
-      logText: () => "Turned on PDF tagging with \\DocumentMetadata" });
+    issues.push({ id: "tex-meta", type: "auto", enabled: !beamer, title: "Turn on PDF tagging, set the language, and label the math",
+      detailHtml: `Adds <span class="mono">${esc(META)}</span> as the first line. This makes LaTeX produce a tagged PDF that screen readers can navigate.${hasMath ? ` It also adds <span class="mono">${esc(MATHALT)}</span> after <span class="mono">\\documentclass</span>, which gives every equation a text description (its LaTeX source). Without it, Carmen's accessibility checker counts each equation as an image with no description.` : ""} Compile with <strong>LuaLaTeX</strong> on Overleaf or TeX Live 2024 or newer; older installations ignore these lines. If an older package breaks the build, uncheck this and keep the other fixes.${beamer ? " <strong>Off by default because this is a Beamer file:</strong> Beamer doesn't support tagging yet. For slides, post an accessible HTML or Word version alongside the PDF." : ""}`,
+      edits: () => [{ start: dcPos, end: dcPos, text: META + "\n" }].concat(hasMath && !/math\/alt\/use/.test(text) ? [{ start: afterDc, end: afterDc, text: MATHALT + "\n" }] : []),
+      logText: () => "Turned on PDF tagging with \\DocumentMetadata" + (hasMath ? " and gave equations text descriptions" : "") });
+  } else if (dcPos >= 0 && hasMath && !/math\/alt\/use/.test(text)) {
+    const at = afterDc;
+    issues.push({ id: "tex-mathalt", type: "auto", enabled: true, title: "Give every equation a text description",
+      detailHtml: `This file already turns on tagging, but its equations have no text description, so Carmen's accessibility checker counts each one as an image without a description. Adds <span class="mono">\\tagpdfsetup{math/alt/use}</span> after <span class="mono">\\documentclass</span>, which uses each equation's LaTeX source as its description.`,
+      edits: () => [{ start: at, end: at, text: "\\tagpdfsetup{math/alt/use}\n" }],
+      logText: () => "Gave equations text descriptions (math/alt/use)" });
   }
   if (beginDoc >= 0 && !/pdftitle/.test(text)) {
     const tm = (() => { const i = text.search(/\\title(\[[^\]]*\])?\{/); if (i < 0 || commented(text, i)) return null; const r = braceArg(text, text.indexOf("{", i)); return r ? plainTex(text.slice(r[0], r[1])) : null; })();
