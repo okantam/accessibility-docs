@@ -1,0 +1,1303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accessible Course Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;600;700&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: one working column. Upload and format guide on top, then summary, then three stacked sections (fixed, needs review, advice), then the download bar. */
+:root {
+  --bg: #F4F5F9;
+  --surface: #FFFFFF;
+  --ink: #171A2B;
+  --muted: #4B5169;
+  --line: #D6D9E6;
+  --accent: #2B3DB8;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #E6E9FA;
+  --ok: #1B6A39;
+  --ok-soft: #E1F2E7;
+  --warn: #7C4F00;
+  --warn-soft: #FBF0D9;
+  --info: #3D4A6B;
+  --info-soft: #E9ECF3;
+  --font-body: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Atkinson Hyperlegible Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --radius: 10px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0F1220; --surface: #181C2C; --ink: #ECEEF6; --muted: #A8AEC7; --line: #2E3450;
+    --accent: #9DAAFF; --accent-ink: #0F1220; --accent-soft: #252C4F;
+    --ok: #7FD8A2; --ok-soft: #173326; --warn: #F2C35B; --warn-soft: #3A2E12; --info: #B9C2DE; --info-soft: #232A40;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0F1220; --surface: #181C2C; --ink: #ECEEF6; --muted: #A8AEC7; --line: #2E3450;
+  --accent: #9DAAFF; --accent-ink: #0F1220; --accent-soft: #252C4F;
+  --ok: #7FD8A2; --ok-soft: #173326; --warn: #F2C35B; --warn-soft: #3A2E12; --info: #B9C2DE; --info-soft: #232A40;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 17px; line-height: 1.55; }
+a { color: var(--accent); }
+.wrap { max-width: 1060px; margin: 0 auto; padding: 28px 20px 120px; display: grid; gap: 24px; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.2; margin: 0; }
+h1 { font-size: 2rem; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 1.3rem; font-weight: 700; }
+h3 { font-size: 1.05rem; font-weight: 700; }
+p { margin: 0; }
+.lede { color: var(--muted); max-width: 64ch; margin-top: 6px; }
+header.top { display: grid; gap: 4px; }
+.std { font-size: 0.85rem; color: var(--muted); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
+.intro { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 20px; }
+@media (max-width: 820px) { .intro { grid-template-columns: 1fr; } }
+
+.drop { border: 2px dashed var(--line); border-radius: var(--radius); padding: 22px; display: grid; gap: 12px; justify-items: start; transition: border-color .15s, background .15s; }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop p { color: var(--muted); }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+button, .btn { font: inherit; font-weight: 600; font-size: 0.95rem; border-radius: 8px; padding: 9px 16px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+button.secondary, .btn.secondary { background: transparent; color: var(--accent); }
+button.quiet { background: transparent; border-color: var(--line); color: var(--ink); }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+button:focus-visible, .btn:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+label.file-btn:focus-within { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+table.formats { width: 100%; border-collapse: collapse; font-size: 0.93rem; }
+table.formats caption { text-align: left; font-weight: 700; font-size: 1.05rem; margin-bottom: 8px; }
+table.formats th, table.formats td { text-align: left; vertical-align: top; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); }
+table.formats th[scope="row"] { white-space: nowrap; font-weight: 700; }
+table.formats thead th { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+
+.filebar { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between; }
+.filename { font-family: var(--font-mono); font-size: 1rem; word-break: break-all; }
+.tag { display: inline-block; font-size: 0.78rem; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: var(--info-soft); color: var(--info); letter-spacing: 0.02em; }
+.tag.example { background: var(--warn-soft); color: var(--warn); }
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+@media (max-width: 600px) { .tiles { grid-template-columns: 1fr; } }
+.tile { border-radius: 8px; padding: 12px 14px; border-left: 5px solid; }
+.tile .n { font-size: 1.7rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.tile .l { font-size: 0.9rem; }
+.tile.ok { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
+.tile.warn { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
+.tile.info { background: var(--info-soft); border-color: var(--info); color: var(--info); }
+
+section.group { display: grid; gap: 12px; }
+.group-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; justify-content: space-between; }
+.group-head p { color: var(--muted); font-size: 0.95rem; max-width: 70ch; }
+.list { display: grid; gap: 10px; }
+.item { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; display: grid; gap: 8px; border-left: 5px solid var(--line); }
+.item.auto { border-left-color: var(--ok); }
+.item.review { border-left-color: var(--warn); }
+.item.review.done { border-left-color: var(--ok); }
+.item.advice { border-left-color: var(--info); }
+.item .detail { color: var(--muted); font-size: 0.95rem; max-width: 75ch; }
+.check { display: flex; gap: 10px; align-items: flex-start; }
+.check input { width: 20px; height: 20px; margin-top: 3px; accent-color: var(--accent); flex: none; }
+.subs { display: grid; gap: 4px; margin: 2px 0 0 30px; }
+.subs label { display: flex; gap: 8px; align-items: flex-start; font-size: 0.93rem; }
+.subs input { margin-top: 4px; accent-color: var(--accent); }
+.mono { font-family: var(--font-mono); font-size: 0.88rem; }
+.swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; border: 1px solid var(--line); }
+
+.review-grid { display: grid; grid-template-columns: minmax(0, 240px) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 700px) { .review-grid { grid-template-columns: 1fr; } }
+.preview { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); overflow: auto; max-height: 260px; }
+.preview img { display: block; max-width: 100%; height: auto; background: #fff; }
+.preview pre { margin: 0; padding: 10px; font-family: var(--font-mono); font-size: 0.8rem; white-space: pre; }
+.preview .ph { padding: 14px; color: var(--muted); font-size: 0.9rem; }
+.field { display: grid; gap: 6px; }
+.field label { font-weight: 600; font-size: 0.95rem; }
+textarea, input[type="text"] { font: inherit; font-size: 0.97rem; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; width: 100%; }
+textarea { min-height: 84px; resize: vertical; }
+.meta { font-size: 0.85rem; color: var(--muted); }
+.hint { font-size: 0.9rem; color: var(--warn); background: var(--warn-soft); padding: 8px 10px; border-radius: 6px; }
+details summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; }
+details .ctx { margin-top: 6px; font-size: 0.9rem; color: var(--muted); white-space: pre-wrap; max-height: 160px; overflow: auto; }
+
+.dockbar { position: sticky; bottom: 0; z-index: 5; background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -6px 20px rgba(0,0,0,0.06); }
+.dockbar .inner { max-width: 1060px; margin: 0 auto; padding: 12px 20px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
+#status { font-size: 0.93rem; color: var(--muted); }
+.empty { color: var(--muted); font-size: 0.95rem; }
+
+.checklist { display: grid; gap: 8px; }
+.checklist .ci { display: flex; gap: 10px; align-items: baseline; }
+.pill { font-size: 0.78rem; font-weight: 700; padding: 1px 8px; border-radius: 999px; flex: none; }
+.pill.pass { background: var(--ok-soft); color: var(--ok); }
+.pill.fail { background: var(--warn-soft); color: var(--warn); }
+.pill.unk { background: var(--info-soft); color: var(--info); }
+.rebuild { display: grid; gap: 14px; }
+.two { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px; }
+@media (max-width: 800px) { .two { grid-template-columns: 1fr; } }
+#mdEdit { min-height: 420px; font-family: var(--font-mono); font-size: 0.85rem; }
+#mdPreview { border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; max-height: 520px; overflow: auto; background: var(--surface); }
+#mdPreview blockquote { margin: 10px 0; padding: 8px 12px; border-left: 4px solid var(--accent); background: var(--accent-soft); }
+#mdPreview table { border-collapse: collapse; }
+#mdPreview th, #mdPreview td { border: 1px solid var(--line); padding: 4px 8px; }
+progress { width: 100%; height: 10px; accent-color: var(--accent); }
+.log { font-size: 0.93rem; }
+.log li { margin: 2px 0; }
+body.no-ai .ai-only, body.ai .noai-only { display: none !important; }
+.guide { font-size: 0.93rem; color: var(--muted); }
+.guide ul { margin: 6px 0 0; padding-left: 20px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body class="no-ai">
+<div class="wrap">
+  <header class="top">
+    <span class="std">WCAG 2.1 AA · ADA Title II</span>
+    <h1>Accessible Course Docs</h1>
+    <p class="lede">Upload a handout, syllabus, lab, or slide source. Safe fixes are made automatically, anything that needs a person's judgment (like alt text for a plot) is <span class="noai-only">laid out for you to fill in</span><span class="ai-only">drafted for you to approve</span>, and you download the fixed file in the same format.</p>
+  </header>
+
+  <div class="intro">
+    <div class="card">
+      <div class="drop" id="drop">
+        <h2>Check a document</h2>
+        <p>Word (.docx), PDF, R Markdown (.Rmd), Quarto (.qmd), Markdown, or LaTeX (.tex). <span class="noai-only">Your file never leaves your computer: everything runs in your browser and nothing is uploaded.</span><span class="ai-only">Your file stays in your browser; only images and text you send to Claude for drafting leave it.</span></p>
+        <div class="row">
+          <label class="btn file-btn" for="fileInput">Choose a file
+            <input id="fileInput" class="sr-only" type="file" accept=".docx,.pdf,.rmd,.Rmd,.qmd,.md,.tex">
+          </label>
+          <span class="meta">or drop it here</span>
+        </div>
+        <div class="row">
+          <button class="secondary" id="sampleRmd" type="button">Load example R Markdown</button>
+          <button class="secondary" id="sampleTex" type="button">Load example LaTeX</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <table class="formats">
+        <caption>What happens to each format</caption>
+        <thead><tr><th scope="col">Format</th><th scope="col">What the tool does</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Word</th><td>Sets title and language, turns bold lines into real headings, marks table headers, darkens faint text, removes stacked blank lines, and collects alt text for every image<span class="ai-only"> (Claude drafts it)</span>.</td></tr>
+          <tr><th scope="row">R Markdown, Quarto</th><td>Adds title and language, adds <span class="mono">fig-alt</span> to every plotting chunk<span class="ai-only"> (Claude drafts it from the code)</span>, fixes skipped heading levels, flags red/green palettes.</td></tr>
+          <tr><th scope="row">LaTeX</th><td>Turns on PDF tagging, sets the PDF title, adds <span class="mono">alt=</span> text for every <span class="mono">\includegraphics</span>.</td></tr>
+          <tr><th scope="row">PDF</th><td>Checks title, language, tags, and scanned pages, and shows the best way to fix it.<span class="ai-only"> Claude can rebuild it as an accessible web page or Quarto file with real math.</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="results" class="card" aria-live="polite"></div>
+  <div id="groups" style="display:grid; gap:28px;"></div>
+</div>
+
+<div class="dockbar" id="dock" hidden>
+  <div class="inner">
+    <p id="status" role="status" aria-live="polite"></p>
+    <div class="row">
+      <button class="quiet" id="draftAll" type="button">Draft all alt text with Claude</button>
+      <button class="secondary" id="copyBtn" type="button" hidden>Copy fixed text</button>
+      <button id="downloadBtn" type="button">Download fixed file</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script>
+"use strict";
+/* ------------------------------------------------------------------ */
+/* Shared helpers                                                       */
+/* ------------------------------------------------------------------ */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const state = { name: "", kind: "", ext: "", buf: null, text: null, issues: [], example: false, pdf: null, yamlInfo: null, md: "" };
+let sampleFn = null, downloadsApi = null, aiBlocked = false;
+
+if (window.pdfjsLib) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+}
+
+const IN_CLAUDE = !!(window.claude && window.claude.use);
+const aiOn = () => !!(sampleFn && !aiBlocked);
+function setMode() { document.body.classList.toggle("ai", aiOn()); document.body.classList.toggle("no-ai", !aiOn()); }
+(async () => {
+  if (!IN_CLAUDE) return;
+  try { sampleFn = await window.claude.use("sample"); } catch (e) { sampleFn = null; }
+  try { downloadsApi = await window.claude.use("downloads"); } catch (e) { downloadsApi = null; }
+  setMode(); render();
+})();
+
+function setStatus(msg) { $("#status").textContent = msg; }
+function stripQuotes(s) { return String(s).replace(/["“”]/g, "'").replace(/\s+/g, " ").trim(); }
+function yamlStr(s) { return '"' + stripQuotes(s).replace(/\\/g, "\\\\") + '"'; }
+function texEsc(s) { return stripQuotes(s).replace(/\$/g, "").replace(/([%#&_])/g, "\\$1").replace(/[{}]/g, "").replace(/\\(?![%#&_])/g, ""); }
+
+/* ------------------------------------------------------------------ */
+/* Claude drafting                                                      */
+/* ------------------------------------------------------------------ */
+async function ask(prompt, opts = {}) {
+  if (!sampleFn) throw { code: "unavailable", message: "Claude drafting is not available in this view." };
+  try {
+    const res = await sampleFn(prompt, opts);
+    return (res && res.text) || "";
+  } catch (e) {
+    if (e && e.code === "not_granted") { aiBlocked = true; setMode(); render(); }
+    throw e;
+  }
+}
+function aiErrorText(e) {
+  if (!e) return "Something went wrong. Try again.";
+  if (e.code === "not_granted") return "Claude drafting is turned off for this page. You can still type the text yourself.";
+  if (e.code === "rate_limited") return "Claude is busy right now. Wait a minute, then try again.";
+  if (e.name === "AbortError") return "Stopped.";
+  return e.message || "Claude could not draft this one. Type it yourself or try again.";
+}
+const ALT_RULES = `Rules:
+- Plots: name the plot type and what is on each axis or in each group, then the pattern a student is meant to notice (shape, center, spread, outliers, trend, direction and strength of association, group differences). 1 to 3 sentences.
+- Equations: write the math the way a professor reads it aloud, for example "x bar equals the sum of x sub i for i from 1 to n, divided by n".
+- Tables: say what the table shows and give its key values.
+- Do not begin with "Image of", "Picture of", or "Graph of". Plain text only: no Markdown, no LaTeX, no quotation marks.`;
+
+async function draftImageAlt(blob, context) {
+  const prompt = `You write alt text for images in university statistics course documents, so a student using a screen reader gets the same information a sighted student gets.
+
+Text around the image in the document:
+<<<
+${context || "(none)"}
+>>>
+
+Look at the image and reply with JSON only, in this form: {"kind": "plot" | "equation" | "table" | "diagram" | "photo" | "screenshot" | "decorative", "alt": "..."}
+If the image carries no information (a border, clip art, a logo), use kind "decorative" and alt "".
+${ALT_RULES}
+- Include key numbers you can read from the axes or labels.`;
+  const text = await ask(prompt, { images: [blob] });
+  const m = text.match(/\{[\s\S]*\}/);
+  try { const j = JSON.parse(m ? m[0] : text); return { kind: j.kind || "", alt: stripQuotes(j.alt || "") }; }
+  catch { return { kind: "", alt: stripQuotes(text) }; }
+}
+async function draftCodeAlt(lang, code, context, caption) {
+  const prompt = `Write alt text for the figure produced by this ${lang} code chunk in a university statistics course document. You cannot see the figure, only the code. Describe what the plot shows (plot type, variables, how color, shape, or facets are used) and, using the surrounding text, what the student is meant to notice. Do not invent numbers that are not in the code or text.
+${ALT_RULES}
+
+Text before the chunk:
+<<<
+${context || "(none)"}
+>>>
+${caption ? "Figure caption: " + caption + "\n" : ""}
+Code:
+<<<
+${code}
+>>>
+
+Reply with the alt text only.`;
+  return stripQuotes(await ask(prompt));
+}
+async function draftContextAlt(file, caption, context) {
+  const prompt = `Write draft alt text for an image in a university statistics course document. You cannot see the image. Use the file name, caption, and surrounding text, keep it general, and do not invent specific values.
+${ALT_RULES}
+
+File name: ${file}
+${caption ? "Caption: " + caption + "\n" : ""}Text around it:
+<<<
+${context || "(none)"}
+>>>
+
+Reply with the alt text only.`;
+  return stripQuotes(await ask(prompt));
+}
+
+/* ------------------------------------------------------------------ */
+/* Color contrast                                                       */
+/* ------------------------------------------------------------------ */
+function hexRgb(h) { h = h.replace("#", ""); return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)); }
+function lum(rgb) { const c = rgb.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; }
+function contrast(a, b) { const l1 = lum(hexRgb(a)), l2 = lum(hexRgb(b)); return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05); }
+function darken(hex) {
+  const rgb = hexRgb(hex);
+  for (let f = 0.95; f > 0; f -= 0.03) {
+    const c = rgb.map((v) => Math.round(v * f));
+    const h = c.map((v) => v.toString(16).padStart(2, "0")).join("").toUpperCase();
+    if (contrast(h, "FFFFFF") >= 4.6) return h;
+  }
+  return "000000";
+}
+
+/* ------------------------------------------------------------------ */
+/* Word (.docx)                                                         */
+/* ------------------------------------------------------------------ */
+const NS = {
+  w: "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+  wp: "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
+  a: "http://schemas.openxmlformats.org/drawingml/2006/main",
+  r: "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+  dc: "http://purl.org/dc/elements/1.1/",
+};
+const DOCX_PARTS = ["word/document.xml", "word/styles.xml", "docProps/core.xml", "word/_rels/document.xml.rels"];
+const wEls = (n, name) => Array.from(n.getElementsByTagNameNS(NS.w, name));
+const wChild = (n, name) => { for (const c of n.children) if (c.namespaceURI === NS.w && c.localName === name) return c; return null; };
+const wAttr = (el, name) => el.getAttributeNS(NS.w, name) || el.getAttribute("w:" + name) || "";
+const wMk = (doc, name) => doc.createElementNS(NS.w, "w:" + name);
+const wSet = (el, name, v) => el.setAttributeNS(NS.w, "w:" + name, v);
+const paraText = (p) => wEls(p, "t").map((t) => t.textContent).join("");
+const hasDesc = (n, name) => n.getElementsByTagNameNS("*", name).length > 0;
+const ancestor = (n, local) => { let x = n.parentNode; while (x && x.nodeType === 1) { if (x.localName === local) return x; x = x.parentNode; } return null; };
+
+async function loadDocx(buf) {
+  const zip = await JSZip.loadAsync(buf);
+  const parts = {};
+  for (const p of DOCX_PARTS) {
+    const f = zip.file(p);
+    if (f) parts[p] = new DOMParser().parseFromString(await f.async("string"), "application/xml");
+  }
+  if (!parts["word/document.xml"]) throw new Error("This doesn't look like a Word document (no document.xml inside).");
+  return { zip, parts };
+}
+function ensureChild(doc, parent, name, first) {
+  let c = wChild(parent, name);
+  if (!c) { c = wMk(doc, name); if (first && parent.firstChild) parent.insertBefore(c, parent.firstChild); else parent.appendChild(c); }
+  return c;
+}
+function headingStyleMap(styles) {
+  const map = {};
+  if (!styles) return map;
+  for (const s of wEls(styles, "style")) {
+    if (wAttr(s, "type") !== "paragraph") continue;
+    const nm = wChild(s, "name"); const id = wAttr(s, "styleId");
+    const n = nm ? wAttr(nm, "val").toLowerCase() : "";
+    const m = n.match(/^heading (\d)$/) || id.match(/^Heading(\d)$/i);
+    if (m) map[+m[1]] = id;
+    if (n === "title") map.title = id;
+  }
+  return map;
+}
+function ensureHeadingStyle(styles, level) {
+  const map = headingStyleMap(styles);
+  if (map[level]) return map[level];
+  const id = "Heading" + level;
+  if (!styles) return id;
+  const s = wMk(styles, "style"); wSet(s, "type", "paragraph"); wSet(s, "styleId", id);
+  const nm = wMk(styles, "name"); wSet(nm, "val", "heading " + level); s.appendChild(nm);
+  const bo = wMk(styles, "basedOn"); wSet(bo, "val", "Normal"); s.appendChild(bo);
+  const nx = wMk(styles, "next"); wSet(nx, "val", "Normal"); s.appendChild(nx);
+  s.appendChild(wMk(styles, "qFormat"));
+  const pPr = wMk(styles, "pPr"); pPr.appendChild(wMk(styles, "keepNext"));
+  const ol = wMk(styles, "outlineLvl"); wSet(ol, "val", String(level - 1)); pPr.appendChild(ol); s.appendChild(pPr);
+  const rPr = wMk(styles, "rPr"); rPr.appendChild(wMk(styles, "b"));
+  const sz = wMk(styles, "sz"); wSet(sz, "val", String([0, 32, 28, 26][level] || 24)); rPr.appendChild(sz); s.appendChild(rPr);
+  styles.documentElement.appendChild(s);
+  return id;
+}
+function runIsBold(r) { const rPr = wChild(r, "rPr"); if (!rPr) return false; const b = wChild(rPr, "b"); if (!b) return false; const v = wAttr(b, "val"); return !(v === "0" || v === "false"); }
+function runSize(r) { const rPr = wChild(r, "rPr"); const sz = rPr && wChild(rPr, "sz"); return sz ? parseInt(wAttr(sz, "val"), 10) || 0 : 0; }
+
+function analyzeDocx(pkg, withPreviews) {
+  const { zip, parts } = pkg;
+  const doc = parts["word/document.xml"], styles = parts["word/styles.xml"], core = parts["docProps/core.xml"], rels = parts["word/_rels/document.xml.rels"];
+  const body = wEls(doc, "body")[0];
+  const paras = wEls(body, "p");
+  const pIndex = new Map(paras.map((p, i) => [p, i]));
+  const hmap = headingStyleMap(styles);
+  const headingIds = new Set(Object.values(hmap).map((x) => x.toLowerCase()));
+  const isHeading = (p) => { const pPr = wChild(p, "pPr"); const ps = pPr && wChild(pPr, "pStyle"); if (!ps) return 0; const v = wAttr(ps, "val"); const m = v.match(/^heading\s*(\d)$/i); if (m) return +m[1]; if (headingIds.has(v.toLowerCase())) { for (const [k, id] of Object.entries(hmap)) if (id.toLowerCase() === v.toLowerCase()) return k === "title" ? 1 : +k; } return 0; };
+  const relMap = {};
+  if (rels) for (const r of Array.from(rels.getElementsByTagName("Relationship"))) relMap[r.getAttribute("Id")] = { target: r.getAttribute("Target"), external: r.getAttribute("TargetMode") === "External" };
+  const issues = [];
+  const ctxAround = (p, k = 2) => {
+    const i = pIndex.has(p) ? pIndex.get(p) : -1; if (i < 0) return "";
+    const before = [], after = [];
+    for (let j = i - 1; j >= 0 && before.length < k; j--) { const t = paraText(paras[j]).trim(); if (t) before.unshift(t); }
+    for (let j = i + 1; j < paras.length && after.length < k; j++) { const t = paraText(paras[j]).trim(); if (t) after.push(t); }
+    return [...before, "[IMAGE IS HERE]", ...after].join("\n");
+  };
+
+  // Title
+  if (core) {
+    let titleEl = core.getElementsByTagNameNS(NS.dc, "title")[0];
+    const cur = titleEl ? titleEl.textContent.trim() : "";
+    if (!cur) {
+      const firstH = paras.find((p) => isHeading(p) && paraText(p).trim());
+      const firstAny = paras.find((p) => paraText(p).trim());
+      const guess = ((firstH || firstAny) ? paraText(firstH || firstAny).trim() : "").slice(0, 90);
+      issues.push({ id: "docx-title", type: "review", kindLabel: "Title", title: "Add a document title",
+        detail: "Screen readers announce the title when the file opens. It is blank now, so they read the file name instead. This is prefilled from the first line; edit it if needed.",
+        field: { label: "Document title", value: guess, multiline: false },
+        apply: (s) => { const v = s.field.value.trim(); if (!v) return false; if (!titleEl) { titleEl = core.createElementNS(NS.dc, "dc:title"); core.documentElement.appendChild(titleEl); } titleEl.textContent = v; return `Set document title to "${v}"`; } });
+    }
+  }
+
+  // Language
+  if (styles) {
+    const dd = wChild(styles.documentElement, "docDefaults");
+    const rpd = dd && wChild(dd, "rPrDefault");
+    const rp = rpd && wChild(rpd, "rPr");
+    const lang = rp && wChild(rp, "lang");
+    if (!lang || !wAttr(lang, "val")) {
+      issues.push({ id: "docx-lang", type: "auto", enabled: true, title: "Set the document language to English (US)",
+        detail: "Screen readers use the language setting to choose the right voice and pronunciation.",
+        apply: () => {
+          const d = ensureChild(styles, styles.documentElement, "docDefaults", true);
+          const r1 = ensureChild(styles, d, "rPrDefault", true);
+          const r2 = ensureChild(styles, r1, "rPr", true);
+          let l = wChild(r2, "lang");
+          if (!l) { l = wMk(styles, "lang"); const after = ["eastAsianLayout", "specVanish", "oMath"].map((n) => wChild(r2, n)).find(Boolean); after ? r2.insertBefore(l, after) : r2.appendChild(l); }
+          wSet(l, "val", "en-US"); return "Set language to English (US)";
+        } });
+    }
+  }
+
+  // Fake headings
+  const levels = paras.map(isHeading).filter(Boolean);
+  const fake = [];
+  for (const p of paras) {
+    if (isHeading(p) || ancestor(p, "tc") || ancestor(p, "txbxContent")) continue;
+    const pPr = wChild(p, "pPr"); if (pPr && wChild(pPr, "numPr")) continue;
+    const t = paraText(p).trim();
+    if (t.length < 2 || t.length > 110 || /[.;,!?]$/.test(t) || /^\d+[\s.)]*$/.test(t)) continue;
+    const runs = wEls(p, "r").filter((r) => wEls(r, "t").some((x) => x.textContent.trim()));
+    if (!runs.length) continue;
+    const allBold = runs.every(runIsBold);
+    const size = Math.max(...runs.map(runSize));
+    if (allBold || size >= 28) fake.push({ p, t, size: size || 22 });
+  }
+  if (fake.length) {
+    const sizes = [...new Set(fake.map((f) => f.size))].sort((a, b) => b - a);
+    const base = levels.length ? Math.min(...levels) + 1 : 1;
+    fake.forEach((f) => { f.level = Math.min(3, base + sizes.indexOf(f.size)); });
+    issues.push({ id: "docx-headings", type: "auto", enabled: true,
+      title: `Turn ${fake.length} bold line${fake.length > 1 ? "s" : ""} into real headings`,
+      detail: "These lines look like headings but are only bold or large text, so screen reader users can't jump between sections. The look stays the same. Uncheck any that aren't headings.",
+      subs: fake.map((f) => ({ label: `Heading ${f.level}: ${f.t}`, enabled: true })),
+      apply: (s) => {
+        let n = 0;
+        fake.forEach((f, i) => {
+          if (s.subs && s.subs[i] && !s.subs[i].enabled) return;
+          const id = ensureHeadingStyle(styles, f.level);
+          const pPr = ensureChild(doc, f.p, "pPr", true);
+          let ps = wChild(pPr, "pStyle"); if (!ps) { ps = wMk(doc, "pStyle"); pPr.insertBefore(ps, pPr.firstChild); }
+          wSet(ps, "val", id); n++;
+        });
+        return n ? `Made ${n} line${n > 1 ? "s" : ""} into headings` : false;
+      } });
+  }
+  if (!levels.length && !fake.length && paras.length > 12) {
+    issues.push({ id: "docx-noheadings", type: "advice", title: "No headings found",
+      detail: "Long documents need headings so screen reader users can navigate. In Word, select a section title and choose Heading 1 or Heading 2 from the Styles gallery." });
+  }
+  for (let i = 1; i < levels.length; i++) if (levels[i] > levels[i - 1] + 1) {
+    issues.push({ id: "docx-headorder", type: "advice", title: "Heading levels skip a step",
+      detail: `A Heading ${levels[i - 1]} is followed by a Heading ${levels[i]}. Use levels in order (1, then 2, then 3) so the outline makes sense to screen readers.` });
+    break;
+  }
+
+  // Blank paragraphs used for spacing
+  const kids = Array.from(body.children).filter((c) => c.namespaceURI === NS.w);
+  const isEmpty = (p) => p.localName === "p" && !paraText(p).trim() && !["drawing", "pict", "object", "oMath", "oMathPara", "sectPr", "fldChar", "instrText"].some((n) => hasDesc(p, n)) && !wEls(p, "br").some((b) => wAttr(b, "type") === "page");
+  const removable = []; let run = [];
+  const flush = () => { if (run.length >= 2) removable.push(...run.slice(1)); run = []; };
+  for (const k of kids) { if (isEmpty(k)) run.push(k); else flush(); }
+  flush();
+  if (removable.length) {
+    issues.push({ id: "docx-blanks", type: "auto", enabled: true, title: `Remove ${removable.length} stacked blank line${removable.length > 1 ? "s" : ""}`,
+      detail: 'Screen readers announce every empty line as "blank". One blank line is kept in each spot, so spacing tightens a little but nothing moves out of order.',
+      apply: () => { removable.forEach((p) => p.parentNode && p.parentNode.removeChild(p)); return `Removed ${removable.length} blank lines`; } });
+  }
+
+  // Table header rows
+  const tbls = wEls(body, "tbl").filter((t) => Array.from(t.children).filter((c) => c.localName === "tr").length >= 2);
+  const noHdr = tbls.filter((t) => { const tr = Array.from(t.children).find((c) => c.localName === "tr"); const trPr = wChild(tr, "trPr"); return !(trPr && wChild(trPr, "tblHeader")); });
+  if (noHdr.length) {
+    issues.push({ id: "docx-tables", type: "auto", enabled: true, title: `Mark the header row in ${noHdr.length} table${noHdr.length > 1 ? "s" : ""}`,
+      detail: "Screen readers read the header with each cell (\"Mean: 4.2\") only when the first row is marked as a header. Uncheck this if a table has no header row.",
+      apply: () => {
+        noHdr.forEach((t) => {
+          const tr = Array.from(t.children).find((c) => c.localName === "tr");
+          let trPr = wChild(tr, "trPr");
+          if (!trPr) { trPr = wMk(doc, "trPr"); const ex = wChild(tr, "tblPrEx"); ex ? tr.insertBefore(trPr, ex.nextSibling) : tr.insertBefore(trPr, tr.firstChild); }
+          trPr.appendChild(wMk(doc, "tblHeader"));
+        });
+        return `Marked header rows in ${noHdr.length} table${noHdr.length > 1 ? "s" : ""}`;
+      } });
+  }
+
+  // Low-contrast text color
+  const lowRuns = [];
+  for (const c of wEls(body, "color")) {
+    const v = wAttr(c, "val"); if (!/^[0-9a-f]{6}$/i.test(v)) continue;
+    const rPr = c.parentNode; if (!rPr || rPr.localName !== "rPr" || wChild(rPr, "shd") || wChild(rPr, "highlight")) continue;
+    if (contrast(v, "FFFFFF") < 4.5) lowRuns.push({ el: c, v: v.toUpperCase() });
+  }
+  if (lowRuns.length) {
+    const uniq = [...new Set(lowRuns.map((x) => x.v))];
+    issues.push({ id: "docx-contrast", type: "auto", enabled: true, title: `Darken faint text colors (${lowRuns.length} place${lowRuns.length > 1 ? "s" : ""})`,
+      detailHtml: "Text needs a contrast ratio of at least 4.5 to 1 against white. Each color keeps its hue and gets just dark enough to pass: " +
+        uniq.map((v) => `<span class="swatch" style="background:#${v}"></span> <span class="mono">${(contrast(v, "FFFFFF")).toFixed(1)}:1</span> → <span class="swatch" style="background:#${darken(v)}"></span> <span class="mono">${contrast(darken(v), "FFFFFF").toFixed(1)}:1</span>`).join(" &nbsp; "),
+      apply: () => { lowRuns.forEach((x) => wSet(x.el, "val", darken(x.v))); return `Darkened ${lowRuns.length} low-contrast text run${lowRuns.length > 1 ? "s" : ""}`; } });
+  }
+
+  // Images
+  const docPrs = Array.from(doc.getElementsByTagNameNS(NS.wp, "docPr"));
+  let imgN = 0;
+  docPrs.forEach((dp, i) => {
+    const descr = (dp.getAttribute("descr") || "").trim();
+    const decorative = dp.getElementsByTagNameNS("*", "decorative").length > 0;
+    const weak = !descr || /^(picture|image|graphic|figure|chart|screenshot)\s*\d*$/i.test(descr) || /\.(png|jpe?g|gif|emf|wmf|svg|bmp|tiff?)$/i.test(descr) || /description automatically generated/i.test(descr);
+    if (decorative || !weak) return;
+    imgN++;
+    const container = ancestor(dp, "drawing") || dp.parentNode;
+    const blip = container.getElementsByTagNameNS(NS.a, "blip")[0];
+    const rid = blip ? (blip.getAttributeNS(NS.r, "embed") || blip.getAttribute("r:embed")) : null;
+    let path = null;
+    if (rid && relMap[rid] && !relMap[rid].external) { path = relMap[rid].target.replace(/^\/?(word\/)?/, ""); path = "word/" + path.replace(/^\.\.\//, ""); }
+    const isChart = !blip && /chart/i.test((container.getElementsByTagNameNS(NS.a, "graphicData")[0] || { getAttribute: () => "" }).getAttribute("uri") || "");
+    const p = ancestor(dp, "p");
+    const context = p ? ctxAround(p) : "";
+    const ext = path ? (path.split(".").pop() || "").toLowerCase() : "";
+    const mime = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" }[ext];
+    const item = {
+      id: "docx-img-" + i, type: "review", kindLabel: isChart ? "Chart" : "Image",
+      title: `Alt text for ${isChart ? "chart" : "image"} ${imgN}`,
+      detail: descr ? `Current alt text is "${descr.slice(0, 120)}", which doesn't describe the content.` : "This image has no alt text, so screen readers skip it or read the file name.",
+      field: { label: "Alt text", value: "", multiline: true }, decorativeAllowed: true, decorative: false, context,
+      preview: { kind: "image", path, mime, note: isChart ? "This is a native Word chart, which can't be previewed here. Describe what it shows." : (!mime ? `This image is a .${ext || "?"} file, which can't be previewed here.` : "") },
+      apply: (s) => {
+        if (s.decorative) {
+          dp.setAttribute("descr", "");
+          let lst = Array.from(dp.children).find((c) => c.localName === "extLst");
+          if (!lst) { lst = doc.createElementNS(NS.a, "a:extLst"); dp.appendChild(lst); }
+          const ex = doc.createElementNS(NS.a, "a:ext"); ex.setAttribute("uri", "{C183D7F6-B498-43B3-948B-1728B52AA6E4}");
+          const d = doc.createElementNS("http://schemas.microsoft.com/office/drawing/2017/decorative", "adec:decorative"); d.setAttribute("val", "1");
+          ex.appendChild(d); lst.appendChild(ex);
+          return `Marked ${s.title.replace("Alt text for ", "")} as decorative`;
+        }
+        const v = s.field.value.trim(); if (!v) return false;
+        dp.setAttribute("descr", v); return `Added alt text to ${s.title.replace("Alt text for ", "")}`;
+      },
+    };
+    if (mime && path && zip.file(path)) {
+      item.getBlob = async () => new Blob([await zip.file(path).async("arraybuffer")], { type: mime });
+      item.ai = async (s) => { const r = await draftImageAlt(await s.getBlob(), s.context); if (r.kind === "decorative") { s.decorative = true; return ""; } if (r.kind === "equation") s.hint = "This looks like an equation saved as a picture. Retyping it with Word's equation editor (Insert, then Equation) makes the math itself readable and searchable."; return r.alt; };
+    }
+    issues.push(item);
+  });
+
+  // Vague links
+  wEls(body, "hyperlink").forEach((h, i) => {
+    const t = wEls(h, "t").map((x) => x.textContent).join("").trim();
+    if (!t) return;
+    const vague = /^(click here|here|link|this link|read more|more|this|go|website|page|click)$/i.test(t);
+    const urlish = /^(https?:\/\/|www\.)\S{30,}$/i.test(t);
+    if (!vague && !urlish) return;
+    const rid = h.getAttributeNS(NS.r, "id") || h.getAttribute("r:id");
+    const target = rid && relMap[rid] ? relMap[rid].target : "";
+    issues.push({ id: "docx-link-" + i, type: "review", kindLabel: "Link", title: `Link text "${t.length > 40 ? t.slice(0, 40) + "…" : t}"`,
+      detail: `Screen reader users often jump from link to link and hear only the link text. Say where it goes, like "Week 3 practice problems".${target ? " Link goes to: " + target : ""}`,
+      field: { label: "New link text", value: "", multiline: false, placeholder: "e.g. Week 3 practice problems" },
+      apply: (s) => { const v = s.field.value.trim(); if (!v) return false; const ts = wEls(h, "t"); ts.forEach((x, k) => { x.textContent = k ? "" : v; }); ts[0].setAttribute("xml:space", "preserve"); return `Changed link text "${t}" to "${v}"`; } });
+  });
+
+  if (hasDesc(body, "txbxContent")) issues.push({ id: "docx-textbox", type: "advice", title: "Text boxes found",
+    detail: "Screen readers often read text boxes out of order or skip them. Move important content from text boxes into the main body." });
+  if (body.getElementsByTagNameNS(NS.wp, "anchor").length) issues.push({ id: "docx-float", type: "advice", title: "Floating images",
+    detail: "Some images float with text wrapping. Setting them to In Line with Text keeps them in reading order." });
+  return issues;
+}
+async function exportDocx() {
+  const pkg = await loadDocx(state.buf);
+  const fresh = analyzeDocx(pkg, false);
+  const log = [];
+  for (const f of fresh) {
+    const saved = state.issues.find((x) => x.id === f.id); if (!saved || f.type === "advice") continue;
+    if (f.type === "auto" && !saved.enabled) continue;
+    const res = f.apply(saved); if (res) log.push(res);
+  }
+  for (const p of DOCX_PARTS) if (pkg.parts[p]) {
+    const xml = new XMLSerializer().serializeToString(pkg.parts[p]).replace(/^<\?xml[^>]*\?>\s*/, "");
+    pkg.zip.file(p, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + xml);
+  }
+  const blob = await pkg.zip.generateAsync({ type: "blob", compression: "DEFLATE", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+  return { blob, log };
+}
+
+/* ------------------------------------------------------------------ */
+/* Text formats: shared                                                 */
+/* ------------------------------------------------------------------ */
+function fenceRanges(text) {
+  const out = []; const re = /^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1[ \t]*$/gm; let m;
+  while ((m = re.exec(text))) out.push([m.index, m.index + m[0].length]);
+  return out;
+}
+const inRanges = (pos, ranges) => ranges.some(([a, b]) => pos >= a && pos < b);
+function applyEdits(text, edits) {
+  edits.forEach((e, i) => { e.seq = i; });
+  edits.sort((a, b) => b.start - a.start || b.seq - a.seq);
+  for (const e of edits) text = text.slice(0, e.start) + e.text + text.slice(e.end);
+  return text;
+}
+function proseBefore(text, pos, n = 700) {
+  return text.slice(Math.max(0, pos - n), pos).replace(/```[\s\S]*?```/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/* ------------------------------------------------------------------ */
+/* R Markdown / Quarto / Markdown                                       */
+/* ------------------------------------------------------------------ */
+const PLOT_RE = /\b(ggplot|qplot|plot|hist|boxplot|barplot|pairs|qqnorm|qqplot|curve|matplot|pie|mosaicplot|stripchart|dotchart|contour|persp|image|ggpairs|autoplot|xyplot|densityplot|bwplot|histogram|include_graphics|plot_ly|scatterplot)\s*\(|geom_|plt\.|sns\.|\.plot\(|\.hist\(|\.boxplot\(/;
+function analyzeRmd(text, ext) {
+  const issues = [];
+  const isQmd = ext === "qmd";
+  const ym = text.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(\r?\n|$)/);
+  const yaml = ym ? ym[1] : "";
+  state.yamlInfo = ym ? { exists: true, insertAt: ym[0].lastIndexOf("\n---") + 1 } : { exists: false, insertAt: 0 };
+  const fences = fenceRanges(text);
+  const yamlEnd = ym ? ym[0].length : 0;
+  const outside = (pos) => pos >= yamlEnd && !inRanges(pos, fences);
+
+  if (!/^title\s*:/m.test(yaml)) {
+    const h = text.slice(yamlEnd).match(/^#{1,2}\s+(.+)$/m);
+    issues.push({ id: "md-title", type: "review", kindLabel: "Title", title: "Add a document title",
+      detail: "The title becomes the page or PDF title that screen readers announce first.",
+      field: { label: "Title", value: h ? h[1].trim() : "", multiline: false },
+      yaml: (s) => (s.field.value.trim() ? "title: " + yamlStr(s.field.value) : null), logText: (s) => `Added title "${s.field.value.trim()}"` });
+  }
+  if (!/^lang\s*:/m.test(yaml)) {
+    issues.push({ id: "md-lang", type: "auto", enabled: true, title: "Set the document language to English (US)",
+      detail: "Adds lang: en-US to the YAML header so HTML and PDF output declare their language.", yaml: () => "lang: en-US", logText: () => "Added lang: en-US" });
+  }
+  const pdfOnly = (/pdf_document|beamer_presentation|^\s*format\s*:\s*pdf|^\s*pdf\s*:|^\s*beamer\s*:/m.test(yaml)) && !/html|revealjs|ioslides|slidy/.test(yaml);
+  if (pdfOnly) issues.push({ id: "md-pdfonly", type: "advice", title: "Output is PDF only",
+    detail: isQmd ? "PDFs from Quarto aren't fully tagged, so screen readers struggle with them, especially the math. Add html as a second format (format: html plus your pdf options); the HTML version reads equations aloud correctly and is the version to post in Carmen." :
+      "PDFs from R Markdown aren't fully tagged, so screen readers struggle with them, especially the math. Add html_document as a second output; the HTML version reads equations aloud correctly and is the version to post in Carmen." });
+
+  // Plot chunks
+  const chunkRe = /^(`{3,})[ \t]*\{(r|R|python)\b([^}\n]*)\}[^\n]*\n([\s\S]*?)^\1[ \t]*$/gm;
+  let m, plotN = 0, redGreen = 0;
+  while ((m = chunkRe.exec(text))) {
+    const lang = m[2].toLowerCase() === "python" ? "Python" : "R";
+    const opts = m[3], body = m[4];
+    const headerEnd = text.indexOf("\n", m.index);
+    const braceClose = m.index + text.slice(m.index, headerEnd).lastIndexOf("}");
+    if (/include\s*=\s*F(ALSE)?\b|eval\s*=\s*F(ALSE)?\b|fig\.show\s*=\s*['"]hide/.test(opts) || /^#\|\s*(include|eval)\s*:\s*false/m.test(body)) continue;
+    if (!PLOT_RE.test(body)) continue;
+    if (/(['"])(red|green)\1[\s\S]*(['"])(red|green)\3/.test(body) && /['"]red['"]/.test(body) && /['"]green['"]/.test(body)) redGreen++;
+    if (/fig[.-]alt/.test(opts) || /^#\|\s*fig[.-]alt\s*:/m.test(body)) continue;
+    plotN++;
+    const label = (opts.match(/^\s*,?\s*([A-Za-z0-9_.-]+)\s*(,|$)/) || body.match(/^#\|\s*label\s*:\s*(\S+)/m) || [])[1];
+    const cap = ((opts.match(/fig\.cap\s*=\s*(['"])(.*?)\1/) || [])[2]) || ((body.match(/^#\|\s*fig-cap\s*:\s*["']?(.*?)["']?\s*$/m) || [])[1]) || "";
+    const ctx = proseBefore(text, m.index);
+    const useQ = isQmd || /^#\|/m.test(body);
+    issues.push({ id: "md-chunk-" + m.index, type: "review", kindLabel: "Plot",
+      title: `Alt text for plot ${plotN}${label && !/^(echo|fig|warning|message|include|eval)$/.test(label) ? " (" + label + ")" : ""}`,
+      detail: `This ${lang} chunk makes a figure with no alt text. ${useQ ? "It will be added as a #| fig-alt: option." : "It will be added as a fig.alt chunk option (knitr 1.33 or newer)."}${/(\b|\.)(facet_|par\(mfrow)/.test(body) ? " This chunk makes several panels; describe them together." : ""}`,
+      field: { label: "Alt text", value: "", multiline: true }, context: ctx,
+      preview: { kind: "code", code: m[0] },
+      ai: (s) => draftCodeAlt(lang, body, ctx, cap),
+      edits: (s) => { const v = s.field.value.trim(); if (!v) return [];
+        return useQ ? [{ start: headerEnd + 1, end: headerEnd + 1, text: "#| fig-alt: " + yamlStr(v) + "\n" }] : [{ start: braceClose, end: braceClose, text: ', fig.alt="' + stripQuotes(v).replace(/\\/g, "\\\\") + '"' }]; },
+      logText: (s) => `Added alt text to ${s.title.replace("Alt text for ", "")}` });
+  }
+  if (redGreen) issues.push({ id: "md-redgreen", type: "advice", title: `${redGreen} plot${redGreen > 1 ? "s use" : " uses"} red and green together`,
+    detail: "About 1 in 12 men can't tell red from green. Use a colorblind-safe palette, such as scale_color_viridis_d() in ggplot2, the Okabe-Ito colors (palette.colors() in base R), or add shapes or line types so color isn't the only cue." });
+
+  // Markdown images
+  const imgRe = /!\[([^\]]*)\]\(([^)\s]+)[^)]*\)(\{[^}\n]*\})?/g;
+  let imgN = 0;
+  while ((m = imgRe.exec(text))) {
+    if (!outside(m.index)) continue;
+    if (m[1].trim() || (m[3] && /fig-alt/.test(m[3]))) continue;
+    imgN++;
+    const file = m[2]; const ctx = proseBefore(text, m.index, 500) + "\n[IMAGE IS HERE]\n" + text.slice(m.index + m[0].length, m.index + m[0].length + 300);
+    const pos = m.index, end = m.index + m[0].length, attr = m[3];
+    issues.push({ id: "md-img-" + pos, type: "review", kindLabel: "Image", title: `Alt text for image ${file.split("/").pop()}`,
+      detail: isQmd ? "This image has empty alt text. It will be added as fig-alt, so no visible caption appears." : "This image has empty alt text. It will go inside the brackets; note that pandoc also shows this text as a caption under a standalone image.",
+      field: { label: "Alt text", value: "", multiline: true }, context: ctx,
+      preview: { kind: "text", text: `${m[0]}\n\nThe image file itself isn't part of this upload, so it can't be shown here. Open it alongside to write the description.` },
+      ai: () => draftContextAlt(file, "", ctx),
+      edits: (s) => { const v = s.field.value.trim(); if (!v) return [];
+        if (isQmd) return attr ? [{ start: end - 1, end: end - 1, text: " fig-alt=" + yamlStr(v) }] : [{ start: end, end: end, text: "{fig-alt=" + yamlStr(v) + "}" }];
+        return [{ start: pos + 2, end: pos + 2, text: stripQuotes(v).replace(/[\[\]]/g, "") }]; },
+      logText: (s) => `Added alt text to image ${file}` });
+  }
+
+  // Heading levels
+  const hRe = /^(#{1,6})([ \t]+)(.+)$/gm; let prev = 0; const hfix = [];
+  while ((m = hRe.exec(text))) {
+    if (!outside(m.index)) continue;
+    const lvl = m[1].length;
+    if (prev && lvl > prev + 1) { hfix.push({ start: m.index, end: m.index + lvl, to: prev + 1, from: lvl, t: m[3].trim() }); prev = prev + 1; }
+    else prev = lvl;
+  }
+  if (hfix.length) issues.push({ id: "md-headings", type: "auto", enabled: true, title: `Fix ${hfix.length} skipped heading level${hfix.length > 1 ? "s" : ""}`,
+    detail: "Heading levels should go in order (##, then ###), so the outline screen readers use doesn't have gaps. Uncheck any you want to keep.",
+    subs: hfix.map((h) => ({ label: `${"#".repeat(h.from)} ${h.t}  →  ${"#".repeat(h.to)} ${h.t}`, enabled: true })),
+    edits: (s) => hfix.filter((h, i) => s.subs[i].enabled).map((h) => ({ start: h.start, end: h.end, text: "#".repeat(h.to) })),
+    logText: (s) => { const k = s.subs.filter((x) => x.enabled).length; return `Fixed ${k} heading level${k > 1 ? "s" : ""}`; } });
+
+  // Vague links
+  const lRe = /\[(click here|here|link|this link|read more|more|this)\]\(([^)\s]+)[^)]*\)/gi;
+  while ((m = lRe.exec(text))) {
+    if (!outside(m.index)) continue;
+    const pos = m.index, word = m[1], url = m[2];
+    issues.push({ id: "md-link-" + pos, type: "review", kindLabel: "Link", title: `Link text "${word}"`,
+      detail: `Screen reader users often jump from link to link and hear only the link text. Say where it goes. Link goes to: ${url}`,
+      field: { label: "New link text", value: "", multiline: false, placeholder: "e.g. ggplot2 cheat sheet" },
+      edits: (s) => { const v = s.field.value.trim(); return v ? [{ start: pos + 1, end: pos + 1 + word.length, text: v.replace(/[\[\]]/g, "") }] : []; },
+      logText: (s) => `Changed link text "${word}" to "${s.field.value.trim()}"` });
+  }
+  return issues;
+}
+
+/* ------------------------------------------------------------------ */
+/* LaTeX                                                                */
+/* ------------------------------------------------------------------ */
+function commented(text, pos) { const ls = text.lastIndexOf("\n", pos - 1) + 1; return /(^|[^\\])%/.test(text.slice(ls, pos)); }
+function braceArg(text, open) { let d = 0; for (let i = open; i < text.length; i++) { if (text[i] === "{" && text[i - 1] !== "\\") d++; else if (text[i] === "}" && text[i - 1] !== "\\") { d--; if (!d) return [open + 1, i]; } } return null; }
+function plainTex(s) { return s.replace(/\\\\/g, " ").replace(/\\[a-zA-Z]+\*?(\[[^\]]*\])?/g, " ").replace(/[{}$~]/g, " ").replace(/\s+/g, " ").trim(); }
+function analyzeTex(text) {
+  const issues = [];
+  const dcPos = (() => { const re = /\\documentclass/g; let m; while ((m = re.exec(text))) if (!commented(text, m.index)) return m.index; return -1; })();
+  const beginDoc = (() => { const re = /\\begin\{document\}/g; let m; while ((m = re.exec(text))) if (!commented(text, m.index)) return m.index; return -1; })();
+  const beamer = /\\documentclass(\[[^\]]*\])?\{beamer\}/.test(text);
+  if (dcPos < 0 || beginDoc < 0) issues.push({ id: "tex-fragment", type: "advice", title: "This file has no preamble",
+    detail: "It looks like a chapter or part that's \\input into a main file. Alt text fixes below still work; upload the main .tex file to turn on tagging and set the title." });
+
+  if (dcPos >= 0 && !/\\DocumentMetadata/.test(text)) {
+    issues.push({ id: "tex-meta", type: "auto", enabled: !beamer, title: "Turn on PDF tagging and set the language",
+      detailHtml: `Adds <span class="mono">\\DocumentMetadata{lang=en-US, pdfversion=2.0, pdfstandard=ua-2, testphase=latest}</span> as the first line. This makes LaTeX produce a tagged PDF that screen readers can navigate. It needs TeX Live 2024 or newer; compile with <strong>LuaLaTeX</strong> so equations are tagged as real math. If an older package breaks the build, uncheck this and keep the other fixes.${beamer ? " <strong>Off by default because this is a Beamer file:</strong> Beamer doesn't support tagging yet. For slides, post an accessible HTML or Word version alongside the PDF." : ""}`,
+      edits: () => [{ start: dcPos, end: dcPos, text: "\\DocumentMetadata{lang=en-US, pdfversion=2.0, pdfstandard=ua-2, testphase=latest}\n" }],
+      logText: () => "Turned on PDF tagging with \\DocumentMetadata" });
+  }
+  if (beginDoc >= 0 && !/pdftitle/.test(text)) {
+    const tm = (() => { const i = text.search(/\\title(\[[^\]]*\])?\{/); if (i < 0 || commented(text, i)) return null; const r = braceArg(text, text.indexOf("{", i)); return r ? plainTex(text.slice(r[0], r[1])) : null; })();
+    const hyper = /\\usepackage(\[[^\]]*\])?\{[^}]*\bhyperref\b/.test(text);
+    issues.push({ id: "tex-title", type: "review", kindLabel: "Title", title: "Set the PDF title",
+      detail: "Screen readers announce the PDF's title when it opens. Without one they read the file name, like hw3_final_v2.pdf." + (tm ? " Prefilled from \\title." : ""),
+      field: { label: "PDF title", value: tm || "", multiline: false },
+      edits: (s) => { const v = s.field.value.trim(); if (!v) return []; return [{ start: beginDoc, end: beginDoc, text: (hyper ? "" : "\\usepackage{hyperref}\n") + `\\hypersetup{pdftitle={${texEsc(v)}}, pdfdisplaydoctitle=true}\n` }]; },
+      logText: (s) => `Set PDF title to "${s.field.value.trim()}"` });
+  }
+
+  const gRe = /\\includegraphics\s*(\[([^\]]*)\])?\s*\{([^}]+)\}/g; let m, n = 0;
+  while ((m = gRe.exec(text))) {
+    if (commented(text, m.index)) continue;
+    const opts = m[2] || "";
+    if (/\balt\s*=|\bartifact\b/.test(opts)) continue;
+    n++;
+    const file = m[3].trim();
+    const after = text.slice(m.index, m.index + 900); const endFig = after.search(/\\end\{(figure|center|minipage|frame)\}/);
+    const capM = (endFig > 0 ? after.slice(0, endFig) : after.slice(0, 400)).match(/\\caption(\[[^\]]*\])?\{/);
+    let cap = ""; if (capM) { const st = m.index + capM.index + capM[0].length - 1; const r = braceArg(text, st); if (r) cap = plainTex(text.slice(r[0], r[1])); }
+    const ctx = plainTex(text.slice(Math.max(0, m.index - 700), m.index)) + "\n[IMAGE IS HERE]";
+    const start = m.index, full = m[0], hasOpt = !!m[1];
+    issues.push({ id: "tex-img-" + start, type: "review", kindLabel: "Image", title: `Alt text for ${file.split("/").pop()}`,
+      detail: "Adds an alt= key to \\includegraphics (supported by LaTeX 2022 and newer, used when tagging is on).",
+      field: { label: "Alt text", value: "", multiline: true }, decorativeAllowed: true, decorative: false, context: ctx,
+      preview: { kind: "text", text: full + (cap ? `\n\nCaption: ${cap}` : "") + "\n\nThe image file itself isn't part of this upload, so it can't be shown here. Open it alongside to write the description." },
+      ai: () => draftContextAlt(file, cap, ctx),
+      edits: (s) => {
+        const v = s.decorative ? "artifact" : (s.field.value.trim() ? `alt={${texEsc(s.field.value)}}` : ""); if (!v) return [];
+        const rep = hasOpt ? full.replace(/\[([^\]]*)\]/, (x, o) => `[${o.trim() ? o.trim() + ", " : ""}${v}]`) : full.replace("\\includegraphics", `\\includegraphics[${v}]`);
+        return [{ start, end: start + full.length, text: rep }];
+      },
+      logText: (s) => s.decorative ? `Marked ${file} as decorative` : `Added alt text to ${file}` });
+  }
+  const tikz = (text.match(/\\begin\{tikzpicture\}/g) || []).length;
+  if (tikz) issues.push({ id: "tex-tikz", type: "advice", title: `${tikz} TikZ drawing${tikz > 1 ? "s" : ""}`,
+    detail: "TikZ graphics have no text alternative. Add a sentence in the text that states what each drawing shows, or wrap it as a figure with a descriptive caption." });
+  const light = (text.match(/\\(textcolor|color)\{(yellow|cyan|lime|pink|orange|lightgray|white|green)\}/g) || []).length;
+  if (light) issues.push({ id: "tex-color", type: "advice", title: `${light} use${light > 1 ? "s" : ""} of light text colors`,
+    detail: "Colors like yellow, cyan, lime, and pure green fall below the 4.5 to 1 contrast minimum on white. Switch to darker shades (for example blue!70!black) and don't use color as the only way to mark something." });
+  const fakeH = (text.match(/^\s*(\\noindent\s*)?\\textbf\{[^{}\n]{2,80}\}\s*(\\\\)?\s*$/gm) || []).length;
+  if (fakeH) issues.push({ id: "tex-fakeh", type: "advice", title: `${fakeH} bold line${fakeH > 1 ? "s" : ""} used as heading${fakeH > 1 ? "s" : ""}`,
+    detail: "Lines like \\textbf{Problem 1} look like headings but aren't tagged as headings. Use \\section*{Problem 1} or \\subsection*{...} so students can jump between problems." });
+  return issues;
+}
+
+/* ------------------------------------------------------------------ */
+/* PDF                                                                  */
+/* ------------------------------------------------------------------ */
+async function analyzePdf(buf) {
+  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf.slice(0)), isEvalSupported: false }).promise;
+  const meta = await pdf.getMetadata().catch(() => ({ info: {} }));
+  const info = meta.info || {};
+  let tagged = false;
+  try { const mi = await pdf.getMarkInfo(); tagged = !!(mi && mi.Marked); } catch {}
+  try { if (!tagged) { const p1 = await pdf.getPage(1); tagged = !!(await p1.getStructTree()); } } catch {}
+  let chars = 0; const nCheck = Math.min(pdf.numPages, 8);
+  for (let i = 1; i <= nCheck; i++) { const p = await pdf.getPage(i); const tc = await p.getTextContent(); chars += tc.items.reduce((s, it) => s + (it.str || "").trim().length, 0); }
+  const scanned = chars / nCheck < 40;
+  const bytes = new Uint8Array(buf); const head = new TextDecoder("latin1").decode(bytes.length > 4e6 ? bytes.slice(0, 4e6) : bytes);
+  const hasLang = /\/Lang\s*\(/.test(head);
+  const creator = [info.Creator, info.Producer].filter(Boolean).join(" · ");
+  const src = /word/i.test(creator) ? "Word" : /latex|pdftex|xetex|luatex|tex live/i.test(creator) ? "LaTeX" : /powerpoint/i.test(creator) ? "PowerPoint" : "";
+  const t0 = (info.Title || "").trim();
+  state.pdf = { pdf, pages: pdf.numPages, title: /^(untitled|microsoft word|document\d*)\b|\.(docx?|tex|pdf|rmd|qmd)$/i.test(t0) ? "" : t0, tagged, scanned, hasLang, creator, src };
+}
+
+function mathify(md) {
+  const store = [];
+  const put = (tex, display) => { store.push(window.katex ? katex.renderToString(tex, { output: "mathml", displayMode: display, throwOnError: false }) : esc(tex)); return `MATHPH${store.length - 1}END`; };
+  md = md.replace(/\$\$([\s\S]+?)\$\$/g, (x, t) => put(t.trim(), true))
+         .replace(/\\\[([\s\S]+?)\\\]/g, (x, t) => put(t.trim(), true))
+         .replace(/\\\((.+?)\\\)/g, (x, t) => put(t, false))
+         .replace(/(^|[^\\$])\$([^\s$](?:[^$\n]*?[^\s\\$])?)\$(?!\d)/g, (x, pre, t) => pre + put(t, false));
+  let html = window.marked ? marked.parse(md) : "<pre>" + esc(md) + "</pre>";
+  html = html.replace(/MATHPH(\d+)END/g, (x, i) => store[+i]);
+  const tmp = document.createElement("div"); tmp.innerHTML = html;
+  tmp.querySelectorAll("script,iframe,object,embed,style").forEach((n) => n.remove());
+  tmp.querySelectorAll("*").forEach((n) => [...n.attributes].forEach((a) => { if (/^on/i.test(a.name) || /^javascript:/i.test(a.value)) n.removeAttribute(a.name); }));
+  return tmp.innerHTML;
+}
+function htmlDoc(title, bodyHtml) {
+  return `<!DOCTYPE html>
+<html lang="en-US">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title>
+<style>
+body { font-family: "Atkinson Hyperlegible", Verdana, Arial, sans-serif; font-size: 1.1rem; line-height: 1.6; color: #1a1a1a; background: #fff; max-width: 46rem; margin: 0 auto; padding: 2rem 1.25rem; }
+h1, h2, h3 { line-height: 1.25; }
+table { border-collapse: collapse; margin: 1rem 0; }
+th, td { border: 1px solid #777; padding: .35rem .6rem; text-align: left; }
+blockquote { margin: 1rem 0; padding: .6rem 1rem; border-left: 4px solid #2b3db8; background: #f0f2fb; }
+math[display="block"] { margin: 1rem 0; }
+a { color: #1f2f99; }
+</style>
+</head>
+<body>
+<main>
+${bodyHtml}
+</main>
+</body>
+</html>`;
+}
+async function rebuildPdf() {
+  const P = state.pdf; if (!P) return;
+  const lim = sampleFn && sampleFn.limits ? await sampleFn.limits().catch(() => ({})) : {};
+  if (!lim.images) { $("#rbMsg").textContent = "Claude can't read page images in this view, so the rebuild isn't available here."; return; }
+  const max = Math.min(P.pages, 25);
+  const ctrl = new AbortController(); state.rbCtrl = ctrl;
+  const out = [];
+  $("#rbStart").disabled = true; $("#rbStop").hidden = false; $("#rbProg").hidden = false; $("#rbProg").max = max; $("#rbProg").value = 0;
+  try {
+    for (let i = 1; i <= max; i++) {
+      $("#rbMsg").textContent = `Reading page ${i} of ${max}…`;
+      const page = await P.pdf.getPage(i);
+      const vp = page.getViewport({ scale: 1.7 });
+      const c = document.createElement("canvas"); c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+      const cx = c.getContext("2d"); cx.fillStyle = "#fff"; cx.fillRect(0, 0, c.width, c.height);
+      await page.render({ canvasContext: cx, viewport: vp }).promise;
+      const blob = await new Promise((r) => c.toBlob(r, "image/png"));
+      const prompt = `This is page ${i} of ${P.pages} of a university statistics course document. Transcribe it into clean, accessible Markdown.
+- Keep all of the text, in reading order.
+- Use # only for the document's main title (page 1), and ## or ### for section headings.
+- Use Markdown lists, and Markdown tables with a header row, where the page has them.
+- Write every equation and math symbol as LaTeX: $...$ inline and $$...$$ for display equations.
+- For each plot, chart, diagram, or picture, write a blockquote that starts with **Figure description:** and describes it for a student who can't see it: plot type, variables and axis ranges, the main pattern, and notable values.
+- Leave out page numbers and repeated headers or footers.
+Reply with the Markdown only, with no code fence around it.`;
+      const md = await ask(prompt, { images: [blob], signal: ctrl.signal });
+      out.push(md.replace(/^```(markdown|md)?\s*\n?|\n?```\s*$/g, "").trim());
+      $("#rbProg").value = i;
+      state.md = out.join("\n\n"); $("#mdEdit").value = state.md; updatePreview();
+    }
+    $("#rbMsg").textContent = P.pages > max ? `Rebuilt the first ${max} of ${P.pages} pages. Split the PDF to rebuild the rest.` : `Rebuilt all ${max} pages. Read through the preview, fix anything off in the text box, then download.`;
+  } catch (e) { $("#rbMsg").textContent = aiErrorText(e) + (out.length ? ` Kept the ${out.length} page${out.length > 1 ? "s" : ""} already rebuilt.` : ""); }
+  finally { $("#rbStart").disabled = false; $("#rbStop").hidden = true; renderDock(); }
+}
+function updatePreview() { const pv = $("#mdPreview"); if (pv) pv.innerHTML = mathify($("#mdEdit").value || "") || '<p class="empty">The rebuilt document appears here.</p>'; }
+
+/* ------------------------------------------------------------------ */
+/* Loading files                                                        */
+/* ------------------------------------------------------------------ */
+async function openFile(file, example = false) {
+  const name = file.name; const ext = (name.split(".").pop() || "").toLowerCase();
+  Object.assign(state, { name, ext, example, issues: [], pdf: null, text: null, buf: null, md: "", log: null });
+  $("#results").innerHTML = `<p>Checking <span class="filename">${esc(name)}</span>…</p>`;
+  $("#groups").innerHTML = "";
+  try {
+    if (ext === "docx") {
+      state.kind = "docx"; state.buf = await file.arrayBuffer();
+      const pkg = await loadDocx(state.buf); state.issues = analyzeDocx(pkg, true);
+      for (const it of state.issues) if (it.preview && it.preview.path && it.preview.mime && pkg.zip.file(it.preview.path)) {
+        it.preview.url = URL.createObjectURL(new Blob([await pkg.zip.file(it.preview.path).async("arraybuffer")], { type: it.preview.mime }));
+      }
+    } else if (["rmd", "qmd", "md", "markdown"].includes(ext)) {
+      state.kind = "md"; state.text = await file.text(); state.issues = analyzeRmd(state.text, ext);
+    } else if (ext === "tex") {
+      state.kind = "tex"; state.text = await file.text(); state.issues = analyzeTex(state.text);
+    } else if (ext === "pdf") {
+      state.kind = "pdf"; state.buf = await file.arrayBuffer(); await analyzePdf(state.buf);
+    } else if (ext === "doc") {
+      throw new Error("Old .doc files can't be fixed here. Open it in Word and use File, Save As, Word Document (.docx), then upload that.");
+    } else if (ext === "pptx") {
+      throw new Error("PowerPoint isn't supported yet. In PowerPoint, Review, then Check Accessibility, covers the same checks.");
+    } else {
+      throw new Error("This file type isn't supported. Upload a .docx, .pdf, .Rmd, .qmd, .md, or .tex file.");
+    }
+    render();
+  } catch (e) {
+    console.error(e);
+    $("#results").innerHTML = `<p><strong>Couldn't read this file.</strong> ${esc(e.message || e)}</p>`;
+    $("#dock").hidden = true;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Rendering                                                            */
+/* ------------------------------------------------------------------ */
+function reviewDone(it) { return it.decorative || !!(it.field && it.field.value.trim()); }
+function render() {
+  if (!state.name) return;
+  if (state.kind === "pdf") return renderPdf();
+  const auto = state.issues.filter((i) => i.type === "auto"), rev = state.issues.filter((i) => i.type === "review"), adv = state.issues.filter((i) => i.type === "advice");
+  const kindName = { docx: "Word document", md: state.ext === "qmd" ? "Quarto document" : state.ext === "rmd" ? "R Markdown document" : "Markdown document", tex: "LaTeX source" }[state.kind];
+  $("#results").innerHTML = `
+    <div class="filebar">
+      <div><span class="filename">${esc(state.name)}</span> <span class="tag">${kindName}</span>${state.example ? ' <span class="tag example">Example file</span>' : ""}</div>
+    </div>
+    <div class="tiles">
+      <div class="tile ok"><div class="n" id="tAuto">${auto.filter((a) => a.enabled).length}</div><div class="l">fixes ready to apply</div></div>
+      <div class="tile warn"><div class="n"><span id="tRev">${rev.filter(reviewDone).length}</span> / ${rev.length}</div><div class="l">items reviewed</div></div>
+      <div class="tile info"><div class="n">${adv.length}</div><div class="l">tips to do by hand</div></div>
+    </div>`;
+  const g = $("#groups"); g.innerHTML = "";
+  const revGroup = groupEl("Needs your review", aiOn() ? "Claude can draft each of these. Read the draft, edit it so it says what you want students to take away, then move on. Items left blank aren't changed." : "Fill in each of these. Say what a student should take away, not only what the picture looks like. Items left blank aren't changed.", rev, reviewEl, "Nothing needs review.");
+  if (rev.some((i) => i.field && i.field.multiline)) {
+    const gd = document.createElement("details"); gd.className = "guide card";
+    gd.innerHTML = `<summary>How to write alt text for a statistics graphic</summary><ul>
+      <li><strong>Start with the type and variables:</strong> "Histogram of commute time in minutes."</li>
+      <li><strong>Then the point:</strong> shape, center, spread, outliers, trend, or group differences. "Right-skewed; most students commute under 20 minutes, a few over an hour."</li>
+      <li><strong>Equations:</strong> write them as you'd read them aloud. "z equals x minus mu, divided by sigma."</li>
+      <li><strong>Skip</strong> "Image of" and colors that don't carry meaning. One to three sentences is usually enough.</li>
+      <li><strong>Decorative</strong> pictures (borders, clip art) get no description: check the Decorative box.</li></ul>`;
+    revGroup.insertBefore(gd, revGroup.querySelector(".list"));
+  }
+  g.appendChild(revGroup);
+  g.appendChild(groupEl("Fixed automatically", "These are applied when you download. Uncheck anything you want to leave alone.", auto, autoEl, "Nothing to fix automatically."));
+  g.appendChild(groupEl("Do by hand", "These can't be changed safely by a tool, so here is what to do.", adv, adviceEl, "No other issues found."));
+  if (state.log) {
+    const s = document.createElement("section"); s.className = "card";
+    s.innerHTML = `<h2>Changes in your last download</h2><ul class="log">${state.log.map((l) => `<li>${esc(l)}</li>`).join("") || "<li>No changes were applied.</li>"}</ul>`;
+    g.prepend(s);
+  }
+  renderDock();
+}
+function groupEl(title, sub, items, fn, emptyText) {
+  const s = document.createElement("section"); s.className = "group";
+  const id = "g-" + title.replace(/\W+/g, "-").toLowerCase();
+  s.setAttribute("aria-labelledby", id);
+  s.innerHTML = `<div class="group-head"><h2 id="${id}">${esc(title)} <span class="meta">(${items.length})</span></h2><p>${esc(sub)}</p></div>`;
+  const list = document.createElement("div"); list.className = "list";
+  if (!items.length) list.innerHTML = `<p class="empty">${esc(emptyText)}</p>`;
+  items.forEach((it) => list.appendChild(fn(it)));
+  s.appendChild(list); return s;
+}
+function autoEl(it) {
+  const d = document.createElement("div"); d.className = "item auto";
+  const cid = "c-" + it.id;
+  d.innerHTML = `<div class="check"><input type="checkbox" id="${cid}" ${it.enabled ? "checked" : ""}><div><label for="${cid}"><h3 style="display:inline">${esc(it.title)}</h3></label><p class="detail">${it.detailHtml || esc(it.detail)}</p></div></div>`;
+  d.querySelector("input").addEventListener("change", (e) => { it.enabled = e.target.checked; updateCounts(); });
+  if (it.subs) {
+    const sub = document.createElement("div"); sub.className = "subs";
+    it.subs.forEach((s, i) => { const l = document.createElement("label"); const sid = `${cid}-s${i}`; l.innerHTML = `<input type="checkbox" id="${sid}" ${s.enabled ? "checked" : ""}><span class="mono">${esc(s.label)}</span>`; l.querySelector("input").addEventListener("change", (e) => { s.enabled = e.target.checked; }); sub.appendChild(l); });
+    d.appendChild(sub);
+  }
+  return d;
+}
+function adviceEl(it) {
+  const d = document.createElement("div"); d.className = "item advice";
+  d.innerHTML = `<h3>${esc(it.title)}</h3><p class="detail">${it.detailHtml || esc(it.detail)}</p>`;
+  return d;
+}
+function reviewEl(it) {
+  const d = document.createElement("div"); d.className = "item review" + (reviewDone(it) ? " done" : "");
+  const fid = "f-" + it.id;
+  let prev = "";
+  if (it.preview) {
+    if (it.preview.kind === "image") prev = it.preview.url ? `<div class="preview"><img src="${it.preview.url}" alt="Preview of the image that needs alt text"></div>${it.preview.note ? `<p class="meta">${esc(it.preview.note)}</p>` : ""}` : `<div class="preview"><p class="ph">${esc(it.preview.note || "No preview available.")}</p></div>`;
+    else if (it.preview.kind === "code") prev = `<div class="preview" tabindex="0" aria-label="Code chunk"><pre>${esc(it.preview.code)}</pre></div>`;
+    else prev = `<div class="preview" tabindex="0"><pre style="white-space:pre-wrap">${esc(it.preview.text)}</pre></div>`;
+  }
+  const f = it.field;
+  const input = f.multiline ? `<textarea id="${fid}" placeholder="${esc(f.placeholder || "Describe what a student should learn from this")}">${esc(f.value)}</textarea>` : `<input type="text" id="${fid}" value="${esc(f.value)}" placeholder="${esc(f.placeholder || "")}">`;
+  const canAI = it.ai && sampleFn && !aiBlocked;
+  d.innerHTML = `
+    <div class="row" style="justify-content:space-between"><h3>${esc(it.title)}</h3><span class="tag">${esc(it.kindLabel || "")}</span></div>
+    <p class="detail">${esc(it.detail)}</p>
+    <div class="${prev ? "review-grid" : ""}">
+      ${prev ? `<div style="display:grid; gap:6px">${prev}</div>` : ""}
+      <div style="display:grid; gap:10px">
+        <div class="field"><label for="${fid}">${esc(f.label)}</label>${input}<span class="meta" id="${fid}-n" aria-live="off"></span></div>
+        ${it.hint ? `<p class="hint">${esc(it.hint)}</p>` : ""}
+        <div class="row">
+          ${canAI ? `<button type="button" class="secondary ai">Draft with Claude</button>` : ""}
+          ${it.decorativeAllowed ? `<label class="check" style="align-items:center"><input type="checkbox" class="deco" ${it.decorative ? "checked" : ""}> <span>Decorative, screen readers should skip it</span></label>` : ""}
+        </div>
+        <p class="meta msg" role="status"></p>
+        ${it.context ? `<details><summary>${aiOn() ? "Nearby text Claude uses" : "Nearby text in your document"}</summary><div class="ctx">${esc(it.context)}</div></details>` : ""}
+      </div>
+    </div>`;
+  const el = d.querySelector("#" + CSS.escape(fid)); const cnt = d.querySelector("#" + CSS.escape(fid + "-n"));
+  const upd = () => { f.value = el.value; if (f.multiline) cnt.textContent = el.value.trim() ? `${el.value.trim().length} characters${el.value.trim().length > 300 ? ". Long descriptions are fine for complex plots, but keep the first sentence as the summary." : ""}` : ""; d.classList.toggle("done", reviewDone(it)); updateCounts(); };
+  el.addEventListener("input", upd); upd();
+  const deco = d.querySelector(".deco");
+  if (deco) deco.addEventListener("change", () => { it.decorative = deco.checked; el.disabled = deco.checked; d.classList.toggle("done", reviewDone(it)); updateCounts(); });
+  if (deco && it.decorative) el.disabled = true;
+  const btn = d.querySelector(".ai");
+  if (btn) btn.addEventListener("click", () => draftOne(it, d));
+  it._el = d;
+  return d;
+}
+async function draftOne(it, d) {
+  d = d || it._el; const btn = d.querySelector(".ai"); const msg = d.querySelector(".msg");
+  btn && (btn.disabled = true); msg.textContent = "Claude is drafting…";
+  try {
+    const v = await it.ai(it);
+    if (it.decorative) { msg.textContent = "Claude thinks this image is decorative. Uncheck the box if it carries information."; }
+    else { it.field.value = v; msg.textContent = "Draft ready. Edit it so it says what you want students to notice."; }
+    const fresh = reviewEl(it); d.replaceWith(fresh); fresh.querySelector(".msg").textContent = msg.textContent;
+    updateCounts();
+  } catch (e) { msg.textContent = aiErrorText(e); btn && (btn.disabled = false); }
+}
+function updateCounts() {
+  const a = $("#tAuto"), r = $("#tRev");
+  if (a) a.textContent = state.issues.filter((i) => i.type === "auto" && i.enabled).length;
+  if (r) r.textContent = state.issues.filter((i) => i.type === "review").filter(reviewDone).length;
+  renderDock();
+}
+function renderDock() {
+  const dock = $("#dock"); dock.hidden = false;
+  const da = $("#draftAll"), dl = $("#downloadBtn"), cp = $("#copyBtn");
+  if (state.kind === "pdf") {
+    da.hidden = true; cp.hidden = !($("#mdEdit") && $("#mdEdit").value.trim());
+    if (!aiOn()) { dl.hidden = true; setStatus("PDFs can't be fixed in place here. Follow the steps above."); return; }
+    dl.hidden = false;
+    cp.textContent = "Copy Markdown";
+    dl.textContent = "Download accessible web page"; dl.disabled = !($("#mdEdit") && $("#mdEdit").value.trim());
+    setStatus(dl.disabled ? "Rebuild the PDF to get a downloadable accessible version." : "Ready: downloads as an .html page with real headings and readable math.");
+    return;
+  }
+  dl.hidden = false;
+  const rev = state.issues.filter((i) => i.type === "review");
+  const pending = rev.filter((i) => i.ai && !reviewDone(i)).length;
+  da.hidden = !(sampleFn && !aiBlocked && pending);
+  da.textContent = `Draft ${pending} with Claude`;
+  cp.hidden = state.kind === "docx"; cp.textContent = "Copy fixed text";
+  const out = outName(); dl.textContent = "Download " + out; dl.disabled = false;
+  const left = rev.filter((i) => !reviewDone(i)).length;
+  setStatus(left ? `${left} review item${left > 1 ? "s" : ""} still blank. They'll be left unchanged unless you fill them in.` : "All review items are filled in.");
+}
+function outName() { const base = state.name.replace(/\.[^.]+$/, ""); return `${base}-accessible.${state.kind === "pdf" ? "html" : state.name.split(".").pop()}`; }
+
+function renderPdf() {
+  const P = state.pdf;
+  const pass = (ok, unk) => unk ? '<span class="pill unk">Unclear</span>' : ok ? '<span class="pill pass">Pass</span>' : '<span class="pill fail">Fix</span>';
+  const srcTip = P.src === "LaTeX" ? "It was made with LaTeX. Uploading the .tex file is the cleanest fix: this tool can turn on tagging there and keep your exact layout." :
+    P.src === "Word" ? "It was made with Word. Uploading the .docx is the cleanest fix, since this tool can repair Word files directly and keep your layout." :
+    P.src === "PowerPoint" ? "It was made with PowerPoint. Fix the slides in PowerPoint (Review, then Check Accessibility) and export again." : "";
+  const canRB = sampleFn && !aiBlocked;
+  $("#results").innerHTML = `
+    <div class="filebar"><div><span class="filename">${esc(state.name)}</span> <span class="tag">PDF, ${P.pages} page${P.pages > 1 ? "s" : ""}</span></div><span class="meta">${esc(P.creator)}</span></div>
+    <div class="checklist" style="margin-top:14px">
+      <div class="ci">${pass(!!P.title)}<span><strong>Title.</strong> ${P.title ? esc(P.title) : "None set, so screen readers announce the file name."}</span></div>
+      <div class="ci">${pass(P.hasLang, !P.hasLang)}<span><strong>Language.</strong> ${P.hasLang ? "Declared." : "Not found. It may be missing, which makes screen readers guess the pronunciation."}</span></div>
+      <div class="ci">${pass(P.tagged)}<span><strong>Tags.</strong> ${P.tagged ? "The PDF is tagged, so headings and reading order can be exposed. Tags can still be wrong; spot-check with a screen reader." : "Untagged. Screen readers get one long stream of text with no headings, tables, or alt text, and equations come out garbled."}</span></div>
+      <div class="ci">${pass(!P.scanned)}<span><strong>Real text.</strong> ${P.scanned ? "These pages look scanned (pictures of text). Screen readers can't read them at all." : "The pages contain selectable text."}</span></div>
+    </div>
+    ${srcTip ? `<p class="hint" style="margin-top:14px">${esc(srcTip)}</p>` : ""}`;
+  const g = $("#groups"); g.innerHTML = "";
+  const s = document.createElement("section"); s.className = "card rebuild"; s.setAttribute("aria-labelledby", "rbH");
+  s.innerHTML = `
+    <h2 id="rbH">Rebuild as an accessible document</h2>
+    <p class="detail" style="color:var(--muted)">Fixing tags inside a PDF is unreliable, so Claude reads each page and rebuilds it with real headings, tables, math that screen readers speak correctly, and a written description of every figure. You review it, then download a web page to post in Carmen, or a Quarto file to keep as your new source. Up to 25 pages at a time.</p>
+    <div class="row">
+      <button type="button" id="rbStart" ${canRB ? "" : "disabled"}>Rebuild ${Math.min(P.pages, 25)} page${P.pages > 1 ? "s" : ""} with Claude</button>
+      <button type="button" class="quiet" id="rbStop" hidden>Stop</button>
+      <button type="button" class="secondary" id="qmdBtn">Download as Quarto (.qmd)</button>
+    </div>
+    <progress id="rbProg" hidden value="0" max="1"></progress>
+    <p class="meta" id="rbMsg" role="status">${canRB ? "" : "Claude drafting isn't available in this view, so the rebuild can't run. The checks above still apply."}</p>
+    <div class="two">
+      <div class="field"><label for="mdEdit">Rebuilt text (Markdown, math in LaTeX). Edit here.</label><textarea id="mdEdit" spellcheck="true"></textarea></div>
+      <div class="field"><span style="font-weight:600; font-size:0.95rem">Preview</span><div id="mdPreview" tabindex="0" aria-label="Preview of the rebuilt document"></div></div>
+    </div>`;
+  if (!aiOn()) {
+    s.innerHTML = `<h2 id="rbH">How to fix this PDF</h2>
+      <ol class="log" style="display:grid; gap:8px; padding-left:20px; margin:0">
+        <li><strong>Best: fix the source and export again.</strong> If you have the original Word, LaTeX, R Markdown, or Quarto file, upload it here, download the fixed version, and make a new PDF from it. In Word, use File, Save As, PDF; in the options, keep "Document structure tags for accessibility" checked.</li>
+        <li><strong>For math-heavy notes, post HTML too.</strong> An HTML version rendered by Quarto or R Markdown reads equations aloud correctly, which tagged PDFs still struggle with.</li>
+        <li><strong>No source file?</strong> Adobe Acrobat Pro's Accessibility tools can add tags and set the title and language. Check the result, since automatic tags are often wrong for tables and math.</li>
+        ${P.scanned ? "<li><strong>Scanned pages need text first.</strong> Run text recognition (OCR) in Acrobat or a scanner app, or retype the document. Until then a screen reader gets nothing at all.</li>" : ""}
+      </ol>`;
+    g.appendChild(s); renderDock(); return;
+  }
+  g.appendChild(s);
+  $("#mdEdit").value = state.md; updatePreview();
+  $("#mdEdit").addEventListener("input", () => { state.md = $("#mdEdit").value; updatePreview(); renderDock(); });
+  $("#rbStart").addEventListener("click", rebuildPdf);
+  $("#rbStop").addEventListener("click", () => state.rbCtrl && state.rbCtrl.abort());
+  $("#qmdBtn").addEventListener("click", async () => {
+    const md = $("#mdEdit").value.trim(); if (!md) { $("#rbMsg").textContent = "Rebuild the PDF first, then download."; return; }
+    const title = (md.match(/^#\s+(.+)$/m) || [])[1] || P.title || state.name.replace(/\.pdf$/i, "");
+    const qmd = `---\ntitle: ${yamlStr(title)}\nlang: en-US\nformat: html\n---\n\n` + md.replace(/^#\s+.+\n+/, "");
+    await save(state.name.replace(/\.pdf$/i, "") + "-accessible.qmd", new Blob([qmd], { type: "text/markdown" }), $("#rbMsg"));
+  });
+  renderDock();
+}
+
+/* ------------------------------------------------------------------ */
+/* Export                                                               */
+/* ------------------------------------------------------------------ */
+function buildText() {
+  const edits = [], yamlLines = [], log = [];
+  for (const it of state.issues) {
+    if (it.type === "advice" || (it.type === "auto" && !it.enabled)) continue;
+    if (it.yaml) { const l = it.yaml(it); if (l) { yamlLines.push(l); log.push(it.logText(it)); } continue; }
+    if (it.edits) { const e = it.edits(it); if (e.length) { edits.push(...e); log.push(it.logText(it)); } }
+  }
+  if (yamlLines.length) {
+    const yi = state.yamlInfo || { exists: false, insertAt: 0 };
+    edits.push(yi.exists ? { start: yi.insertAt, end: yi.insertAt, text: yamlLines.join("\n") + "\n" } : { start: 0, end: 0, text: "---\n" + yamlLines.join("\n") + "\n---\n\n" });
+  }
+  return { text: applyEdits(state.text, edits), log };
+}
+async function save(filename, blob, msgEl) {
+  if (!downloadsApi && !IN_CLAUDE) {
+    const url = URL.createObjectURL(blob); const a = document.createElement("a");
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    (msgEl || $("#status")).textContent = `Saved ${filename} to your Downloads folder.`; return true;
+  }
+  if (!downloadsApi) { (msgEl || $("#status")).textContent = state.kind === "docx" || state.kind === "pdf" ? "Downloads aren't available in this view. Open the page on claude.ai to download." : "Downloads aren't available in this view. Use Copy fixed text and paste it into your file."; return false; }
+  try { await downloadsApi.save({ filename, data: blob }); (msgEl || $("#status")).textContent = `Saved ${filename}.`; return true; }
+  catch (e) { (msgEl || $("#status")).textContent = e && e.code === "declined" ? "Download canceled." : "The download didn't go through. Try again."; return false; }
+}
+$("#downloadBtn").addEventListener("click", async () => {
+  const btn = $("#downloadBtn"); btn.disabled = true;
+  try {
+    if (state.kind === "pdf") {
+      const md = $("#mdEdit").value; const title = (md.match(/^#\s+(.+)$/m) || [])[1] || state.pdf.title || state.name.replace(/\.pdf$/i, "");
+      await save(outName(), new Blob([htmlDoc(title, mathify(md))], { type: "text/html" }));
+      return;
+    }
+    let blob, log;
+    if (state.kind === "docx") ({ blob, log } = await exportDocx());
+    else { const r = buildText(); log = r.log; blob = new Blob([r.text], { type: "text/plain" }); }
+    const ok = await save(outName(), blob);
+    if (ok || !downloadsApi) { state.log = log; const st = $("#status").textContent; render(); setStatus(st); }
+  } catch (e) { console.error(e); setStatus("Couldn't build the fixed file: " + (e.message || e)); }
+  finally { btn.disabled = false; }
+});
+$("#copyBtn").addEventListener("click", async () => {
+  const txt = state.kind === "pdf" ? $("#mdEdit").value : buildText().text;
+  try { await navigator.clipboard.writeText(txt); setStatus("Copied. Paste it over the contents of your file."); }
+  catch { setStatus("Your browser blocked copying. Select the text in a download instead."); }
+});
+$("#draftAll").addEventListener("click", async () => {
+  const btn = $("#draftAll"); btn.disabled = true;
+  const todo = state.issues.filter((i) => i.type === "review" && i.ai && !reviewDone(i));
+  for (let k = 0; k < todo.length; k++) {
+    if (aiBlocked) break;
+    setStatus(`Drafting ${k + 1} of ${todo.length}…`);
+    const it = todo[k]; const msg = it._el.querySelector(".msg");
+    try { const v = await it.ai(it); if (!it.decorative) it.field.value = v; const fresh = reviewEl(it); it._el.replaceWith(fresh); fresh.querySelector(".msg").textContent = it.decorative ? "Claude thinks this is decorative. Uncheck if it carries information." : "Draft ready. Check it."; }
+    catch (e) { msg.textContent = aiErrorText(e); if (e && e.code === "rate_limited") break; }
+  }
+  btn.disabled = false; updateCounts();
+});
+
+/* ------------------------------------------------------------------ */
+/* Upload wiring and examples                                           */
+/* ------------------------------------------------------------------ */
+$("#fileInput").addEventListener("change", (e) => { const f = e.target.files[0]; if (f) openFile(f); e.target.value = ""; });
+const drop = $("#drop");
+["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => { const f = e.dataTransfer.files[0]; if (f) openFile(f); });
+
+const SAMPLE_RMD = `---
+author: "Department of Statistics"
+date: "Autumn 2026"
+output: pdf_document
+---
+
+# Lab 4: Comparing Distributions
+
+In this lab we compare commute times for students who drive and students who take the bus.
+
+### Loading the data
+
+\`\`\`{r setup, include=FALSE}
+library(ggplot2)
+commute <- read.csv("commute.csv")
+\`\`\`
+
+The full data set is described [here](https://example.edu/stat-data/commute).
+
+## Shape of the distribution
+
+\`\`\`{r hist-time, fig.cap="Commute times, all students"}
+ggplot(commute, aes(x = minutes)) +
+  geom_histogram(binwidth = 5, fill = "grey60", color = "white") +
+  labs(x = "Commute time (minutes)", y = "Number of students")
+\`\`\`
+
+The histogram is right-skewed: most students commute under 20 minutes, with a long tail of a few students who travel over an hour.
+
+## Comparing groups
+
+\`\`\`{r box-mode}
+boxplot(minutes ~ mode, data = commute,
+        col = c("red", "green"),
+        ylab = "Commute time (minutes)")
+\`\`\`
+
+Bus riders have a higher median commute and more spread than drivers.
+
+![](figures/campus-map.png)
+`;
+const SAMPLE_TEX = `\\documentclass[11pt]{article}
+\\usepackage{amsmath}
+\\usepackage{graphicx}
+\\usepackage{xcolor}
+\\title{STAT Homework 5: Sampling Distributions}
+\\author{Department of Statistics}
+\\begin{document}
+\\maketitle
+
+\\noindent\\textbf{Problem 1}
+
+Let $\\bar{X}$ be the mean of a random sample of size $n$ from a population with mean $\\mu$ and standard deviation $\\sigma$.
+By the Central Limit Theorem,
+\\[ \\frac{\\bar{X} - \\mu}{\\sigma / \\sqrt{n}} \\approx N(0, 1). \\]
+\\textcolor{yellow}{Hint: start by standardizing.}
+
+\\begin{figure}[h]
+  \\centering
+  \\includegraphics[width=0.7\\textwidth]{figs/clt_sim.pdf}
+  \\caption{Simulated sampling distributions of $\\bar{X}$ for $n = 2, 10, 30$ from an exponential population.}
+\\end{figure}
+
+\\noindent\\textbf{Problem 2}
+
+Use the figure to explain how the shape changes as $n$ increases.
+\\end{document}
+`;
+$("#sampleRmd").addEventListener("click", () => openFile(new File([SAMPLE_RMD], "lab4-distributions.Rmd"), true));
+$("#sampleTex").addEventListener("click", () => openFile(new File([SAMPLE_TEX], "hw5-sampling.tex"), true));
+setMode();
+openFile(new File([SAMPLE_RMD], "lab4-distributions.Rmd"), true);
+</script>
+</body>
+</html>
