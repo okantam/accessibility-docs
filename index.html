@@ -167,7 +167,7 @@ body.no-ai .ai-only, body.ai .noai-only { display: none !important; }
     <div class="card">
       <div class="drop" id="drop">
         <h2>Check a document</h2>
-        <p>Word (.docx), PowerPoint (.pptx), PDF, R Markdown (.Rmd), Quarto (.qmd), Markdown, or LaTeX (.tex). <span class="noai-only">Your file never leaves your computer: everything runs in your browser and nothing is uploaded.</span><span class="ai-only">Your file stays in your browser; only images and text you send to Claude for drafting leave it.</span></p>
+        <p>Word (.docx), PowerPoint (.pptx), PDF, R Markdown (.Rmd), Quarto (.qmd), Markdown, or LaTeX (.tex). <span class="noai-only">Your file never leaves your computer: everything runs in your browser and nothing is uploaded. Image descriptions are written by a small AI that runs on your computer too.</span><span class="ai-only">Your file stays in your browser; only images and text you send to Claude for drafting leave it.</span></p>
         <div class="row">
           <label class="btn file-btn" for="fileInput">Choose a file
             <input id="fileInput" class="sr-only" type="file" accept=".docx,.pptx,.pdf,.rmd,.Rmd,.qmd,.md,.tex">
@@ -359,6 +359,58 @@ Slide ${n} content:
 <<<
 ${slideText || "(no text)"}
 >>>`)).replace(/[.]$/, "");
+}
+
+/* ------------------------------------------------------------------ */
+/* Built-in AI: a small image model (Florence-2) that runs in the browser */
+/* Used only outside Claude. Nothing is uploaded; the model downloads once */
+/* and the browser caches it.                                            */
+/* ------------------------------------------------------------------ */
+const TJS_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.min.js";
+const LOCAL_ID = "onnx-community/Florence-2-base-ft";
+const LOCAL = { lib: null, model: null, processor: null, tokenizer: null, loading: null, failed: null };
+const localOK = () => { try { return localStorage.getItem("a11yLocalModel") === "1"; } catch { return false; } };
+async function loadLocal(onProgress) {
+  if (LOCAL.model) return;
+  if (!LOCAL.loading) LOCAL.loading = (async () => {
+    const T = await import(TJS_URL); LOCAL.lib = T;
+    let gpu = false; try { gpu = !!(navigator.gpu && await navigator.gpu.requestAdapter()); } catch { gpu = false; }
+    const files = {};
+    const progress_callback = (e) => {
+      if (e && e.file && e.total) { files[e.file] = [e.loaded || 0, e.total]; const v = Object.values(files); const done = v.reduce((a, b) => a + b[0], 0), tot = v.reduce((a, b) => a + b[1], 0); onProgress && onProgress(done / tot, tot); }
+    };
+    const opts = gpu ? { device: "webgpu", dtype: { embed_tokens: "fp16", vision_encoder: "fp16", encoder_model: "q4", decoder_model_merged: "q4" } } : { device: "wasm", dtype: "q8" };
+    LOCAL.model = await T.Florence2ForConditionalGeneration.from_pretrained(LOCAL_ID, { ...opts, progress_callback });
+    LOCAL.processor = await T.AutoProcessor.from_pretrained(LOCAL_ID);
+    LOCAL.tokenizer = await T.AutoTokenizer.from_pretrained(LOCAL_ID);
+    try { localStorage.setItem("a11yLocalModel", "1"); } catch {}
+  })();
+  try { await LOCAL.loading; } catch (e) { LOCAL.loading = null; LOCAL.model = null; throw e; }
+}
+async function florence(image, task) {
+  const { processor, tokenizer, model } = LOCAL;
+  const text_inputs = tokenizer(processor.construct_prompts(task));
+  const vision_inputs = await processor(image);
+  const ids = await model.generate({ ...text_inputs, ...vision_inputs, max_new_tokens: 120 });
+  const raw = tokenizer.batch_decode(ids, { skip_special_tokens: false })[0];
+  const out = processor.post_process_generation(raw, task, image.size);
+  return String((out && out[task]) || "").trim();
+}
+function cutAt(t, n) { t = t.trim(); if (t.length <= n) return t; const c = t.slice(0, n); const i = Math.max(c.lastIndexOf(". "), c.lastIndexOf("; ")); return (i > n * 0.5 ? c.slice(0, i + 1) : c.slice(0, c.lastIndexOf(" ")) + "…").trim(); }
+async function localAlt(it) {
+  const blob = await it.getBlob();
+  const img = await LOCAL.lib.RawImage.fromBlob(blob);
+  const w = img.width, h = img.height;
+  if (Math.min(w, h) < 24 || Math.max(w, h) / Math.max(1, Math.min(w, h)) > 10) { it.decorative = true; return ""; }
+  let cap = await florence(img, "<MORE_DETAILED_CAPTION>");
+  cap = cap.replace(/^(the|this) (image|picture|photo|graphic|illustration) (shows|is|depicts|features|displays)( an? | the )?/i, "").replace(/^in this (image|picture),?\s*/i, "").replace(/\s+/g, " ").trim();
+  cap = cap.charAt(0).toUpperCase() + cap.slice(1);
+  cap = cutAt(cap.split(/(?<=\.)\s/).slice(0, 2).join(" "), 170);
+  let ocr = (await florence(img, "<OCR>")).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  const words = ocr.split(" ").filter((x) => /[A-Za-z0-9%]/.test(x));
+  let alt = cap;
+  if (words.length >= 3) alt += (alt.endsWith(".") ? "" : ".") + ` Text in the image: "${cutAt(words.join(" "), 180).replace(/"/g, "'")}"`;
+  return stripQuotes(alt).replace(/'/g, "'");
 }
 
 /* ------------------------------------------------------------------ */
@@ -974,6 +1026,17 @@ function analyzePptx(pkg) {
       field: { label: "Slide title", value: "", multiline: false, placeholder: "e.g. Checking conditions for a t test" }, context: x.text,
       preview: { kind: "text", text: x.text || "(This slide has no text. It may be only a picture.)" },
       ai: () => draftSlideTitle(x.n, x.text, deckTitle),
+      offline: () => {
+        const lines = (x.text || "").split("\n").map((t) => t.replace(/\s+/g, " ").trim()).filter((t) => t.length >= 3);
+        if (!lines.length) return "";
+        const others = new Set(info.filter((o) => o !== x && o.title).map((o) => o.title.toLowerCase()));
+        if (/^(section|chapter|unit|part)\s+\d/i.test(lines[0]) || others.has(lines[0].toLowerCase())) {
+          const next = lines.slice(1).find((t) => t.length <= 70 && !/[.?]$/.test(t));
+          return next ? `${lines[0]}: ${next.replace(/[:.]$/, "")}` : `${lines[0]} (continued)`;
+        }
+        const w = lines[0].replace(/[:.]$/, "").split(" ");
+        return w.length <= 9 ? w.join(" ") : w.slice(0, 8).join(" ").replace(/[,;:]$/, "") + "…";
+      },
       apply: (s) => {
         const v = s.field.value.trim(); if (!v) return false;
         if (x.titleSp && setTitleText(x.titleSp, v)) { moveAboveSlide(x.doc, x.titleSp, x); return `Added title "${v}" to slide ${x.n} (just above the slide edge)`; }
@@ -996,6 +1059,7 @@ function analyzePptx(pkg) {
         field: { label: "New title for slide " + x.n, value: "", multiline: false, placeholder: x.title }, context: x.text,
         preview: { kind: "text", text: x.text || "(no other text on this slide)" },
         ai: () => draftDistinctTitle(x.n, x.title, x.text, nums),
+        offline: () => `${x.title} (${nums.indexOf(x.n) + 1} of ${nums.length})`,
         apply: (s) => { const v = s.field.value.trim(); if (!v || v === x.title) return false; return setTitleText(x.titleSp, v) ? `Retitled slide ${x.n} "${v}"` : false; } });
     });
   });
@@ -1503,7 +1567,10 @@ async function openFile(file, example = false, auto = false) {
     } else {
       throw new Error("This file type isn't supported. Upload a .docx, .pptx, .pdf, .Rmd, .qmd, .md, or .tex file.");
     }
+    for (const it of state.issues) if (it.getBlob && !it.localAi) it.localAi = () => localAlt(it);
+    if (!aiOn()) for (const it of state.issues) if (it.offline && !reviewDone(it)) { const v = it.offline(); if (v) { it.field.value = v; it.needsApproval = true; } }
     render();
+    if (auto && !aiOn() && localOK() && state.issues.some((i) => i.localAi && !reviewDone(i))) $("#draftAll").click();
     if (auto && aiOn()) {
       if (state.kind === "pdf") { if (!state.pdf.tagged || state.pdf.scanned) rebuildPdf(); }
       else if (state.issues.some((i) => i.type === "review" && i.ai && !reviewDone(i))) $("#draftAll").click();
@@ -1520,7 +1587,7 @@ async function openFile(file, example = false, auto = false) {
 /* ------------------------------------------------------------------ */
 function reviewDone(it) { return it.decorative || !!(it.field && it.field.value.trim()); }
 const reviewedByPerson = (it) => reviewDone(it) && !it.needsApproval;
-const UNREV = " (Claude's fix, not reviewed by a person)";
+const UNREV = " (written automatically, not reviewed by a person)";
 function render() {
   if (!state.name) return;
   if (state.kind === "pdf") return renderPdf();
@@ -1536,7 +1603,7 @@ function render() {
       <div class="tile info"><div class="n">${adv.length}</div><div class="l">tips to do by hand</div></div>
     </div>`;
   const g = $("#groups"); g.innerHTML = "";
-  const revGroup = groupEl("Needs your review", aiOn() ? "Claude fills in each of these as soon as you open a file, and its fixes go into the download unless you reject them. Read each one, edit anything that's off, and click Mark as reviewed so the change list shows a person checked it." : "Fill in each of these. Say what a student should take away, not only what the picture looks like. Items left blank aren't changed.", rev, reviewEl, "Nothing needs review.");
+  const revGroup = groupEl("Needs your review", aiOn() ? "Claude fills in each of these as soon as you open a file, and its fixes go into the download unless you reject them. Read each one, edit anything that's off, and click Mark as reviewed so the change list shows a person checked it." : "Image descriptions and slide titles are filled in automatically and go into the download unless you edit or reject them. Read each one and fix anything that's off, especially what a student should take away from a chart. Items left blank aren't changed.", rev, reviewEl, "Nothing needs review.");
   if (rev.some((i) => i.field && i.field.multiline)) {
     const gd = document.createElement("details"); gd.className = "guide card";
     gd.innerHTML = `<summary>How to write alt text for a statistics graphic</summary><ul>
@@ -1598,7 +1665,7 @@ function reviewEl(it) {
   }
   const f = it.field;
   const input = f.multiline ? `<textarea id="${fid}" placeholder="${esc(f.placeholder || "Describe what a student should learn from this")}">${esc(f.value)}</textarea>` : `<input type="text" id="${fid}" value="${esc(f.value)}" placeholder="${esc(f.placeholder || "")}">`;
-  const canAI = it.ai && sampleFn && !aiBlocked;
+  const canAI = (it.ai && aiOn()) || (it.localAi && !aiOn());
   d.innerHTML = `
     <div class="row" style="justify-content:space-between"><h3>${esc(it.title)}</h3><span class="tag">${esc(it.kindLabel || "")}</span></div>
     <p class="detail">${esc(it.detail)}</p>
@@ -1609,7 +1676,7 @@ function reviewEl(it) {
         ${it.hint ? `<p class="hint">${esc(it.hint)}</p>` : ""}
         <div class="row">
           ${it.needsApproval ? `<button type="button" class="approve">Mark as reviewed</button><button type="button" class="quiet reject">Reject</button>` : ""}
-          ${canAI ? `<button type="button" class="secondary ai">${it.needsApproval || f.value.trim() ? "Suggest another" : "Suggest with Claude"}</button>` : ""}
+          ${canAI ? `<button type="button" class="secondary ai">${aiOn() ? (it.needsApproval || f.value.trim() ? "Suggest another" : "Suggest with Claude") : (f.value.trim() ? "Describe again" : "Describe automatically")}</button>` : ""}
           ${it.decorativeAllowed ? `<label class="check" style="align-items:center"><input type="checkbox" class="deco" ${it.decorative ? "checked" : ""}> <span>Decorative, screen readers should skip it</span></label>` : ""}
         </div>
         <p class="meta msg" role="status"></p>
@@ -1636,10 +1703,11 @@ async function draftOne(it, d) {
   btn && (btn.disabled = true); msg.textContent = "Claude is drafting…";
   try {
     it.decorative = false;
-    const v = await it.ai(it);
+    if (!aiOn()) { msg.textContent = LOCAL.model ? "Describing the image…" : "Loading the built-in AI (first time only)…"; await loadLocal((f) => { msg.textContent = `Downloading the built-in AI: ${Math.round(f * 100)}% (first time only)`; }); msg.textContent = "Describing the image…"; }
+    const v = aiOn() ? await it.ai(it) : await it.localAi(it);
     it.needsApproval = true;
     if (it.decorative) { msg.textContent = "Claude marked this image decorative. Uncheck the box if it carries information."; }
-    else { it.field.value = v; msg.textContent = "Claude's fix. It goes into the file unless you edit or reject it."; }
+    else { it.field.value = v; msg.textContent = (aiOn() ? "Claude's" : "Automatic") + " fix. It goes into the file unless you edit or reject it."; }
     const fresh = reviewEl(it); d.replaceWith(fresh); fresh.querySelector(".msg").textContent = msg.textContent;
     updateCounts();
   } catch (e) { msg.textContent = aiErrorText(e); btn && (btn.disabled = false); }
@@ -1665,15 +1733,20 @@ function renderDock() {
   dl.hidden = false;
   const rev = state.issues.filter((i) => i.type === "review");
   const pending = rev.filter((i) => i.ai && !reviewDone(i) && !i.needsApproval).length;
-  da.hidden = !(sampleFn && !aiBlocked && pending);
-  da.textContent = `Suggest fixes for ${pending} item${pending > 1 ? "s" : ""}`;
+  if (aiOn()) { da.hidden = !pending; da.textContent = `Suggest fixes for ${pending} item${pending > 1 ? "s" : ""}`; }
+  else {
+    const localPending = rev.filter((i) => i.localAi && !reviewDone(i)).length;
+    if (LOCAL.failed && localPending) { da.hidden = true; setStatus("The built-in AI couldn't load in this browser, so image descriptions need to be typed. It works best in a current version of Chrome or Edge on a laptop or desktop."); dl.textContent = "Download " + outName(); dl.disabled = false; cp.hidden = state.kind === "docx" || state.kind === "pptx"; return; }
+    da.hidden = !localPending || !!LOCAL.failed;
+    da.textContent = LOCAL.model || localOK() ? `Describe ${localPending} image${localPending > 1 ? "s" : ""} automatically` : `Describe ${localPending} image${localPending > 1 ? "s" : ""} automatically (one-time 250 MB download)`;
+  }
   cp.hidden = state.kind === "docx" || state.kind === "pptx"; cp.textContent = "Copy fixed text";
   const out = outName(); dl.textContent = "Download " + out; dl.disabled = false;
   const left = rev.filter((i) => !reviewDone(i)).length;
   const blankImgs = rev.filter((i) => ["Image", "Chart", "SmartArt"].includes(i.kindLabel) && !reviewDone(i)).length;
-  if (blankImgs && !aiOn()) { setStatus(`${blankImgs} image${blankImgs > 1 ? "s" : ""} still ha${blankImgs > 1 ? "ve" : "s"} no description. Carmen will keep flagging the file until each one has alt text or is marked decorative.`); return; }
+  if (blankImgs && !aiOn()) { if (rev.some((i) => i.localAi && !reviewDone(i)) && !LOCAL.failed) { setStatus(`${blankImgs} image${blankImgs > 1 ? "s" : ""} still need${blankImgs > 1 ? "" : "s"} a description. Click "Describe automatically" and the built-in AI writes them on this computer; nothing is uploaded.`); return; } setStatus(`${blankImgs} image${blankImgs > 1 ? "s" : ""} still ha${blankImgs > 1 ? "ve" : "s"} no description. Carmen will keep flagging the file until each one has alt text or is marked decorative.`); return; }
   const waiting = rev.filter((i) => i.needsApproval).length;
-  if (waiting) { setStatus(`Claude fixed ${waiting} item${waiting > 1 ? "s" : ""} that no one has reviewed yet. They go into the download unless you reject them.`); return; }
+  if (waiting) { setStatus(`${aiOn() ? "Claude" : "The built-in AI"} filled in ${waiting} item${waiting > 1 ? "s" : ""} that no one has reviewed yet. They go into the download unless you edit or reject them.`); return; }
   setStatus(left ? `${left} review item${left > 1 ? "s" : ""} still blank. They'll be left unchanged unless you fill them in.` : "All review items are filled in.");
 }
 function outName() { const base = state.name.replace(/\.[^.]+$/, ""); return `${base}-accessible.${state.kind === "pdf" ? "html" : state.name.split(".").pop()}`; }
@@ -1786,16 +1859,43 @@ $("#copyBtn").addEventListener("click", async () => {
 });
 $("#draftAll").addEventListener("click", async () => {
   const btn = $("#draftAll"); btn.disabled = true;
+  if (!aiOn()) { await runLocalAll(); btn.disabled = false; updateCounts(); return; }
   const todo = state.issues.filter((i) => i.type === "review" && i.ai && !reviewDone(i) && !i.needsApproval);
   for (let k = 0; k < todo.length; k++) {
     if (aiBlocked) break;
     setStatus(`Drafting ${k + 1} of ${todo.length}…`);
     const it = todo[k]; const msg = it._el.querySelector(".msg");
-    try { it.decorative = false; const v = await it.ai(it); it.needsApproval = true; if (!it.decorative) it.field.value = v; const old = it._el; const fresh = reviewEl(it); old.replaceWith(fresh); fresh.querySelector(".msg").textContent = it.decorative ? "Claude marked this decorative. Uncheck if it carries information." : "Claude's fix. It goes into the file unless you edit or reject it."; }
+    try { it.decorative = false; const v = await it.ai(it); it.needsApproval = true; if (!it.decorative) it.field.value = v; const old = it._el; const fresh = reviewEl(it); old.replaceWith(fresh); fresh.querySelector(".msg").textContent = it.decorative ? "Claude marked this decorative. Uncheck if it carries information." : (aiOn() ? "Claude's" : "Automatic") + " fix. It goes into the file unless you edit or reject it."; }
     catch (e) { msg.textContent = aiErrorText(e); if (e && e.code === "rate_limited") break; }
   }
   btn.disabled = false; updateCounts();
 });
+
+async function runLocalAll() {
+  const todo = state.issues.filter((i) => i.type === "review" && i.localAi && !reviewDone(i));
+  if (!todo.length) return;
+  try {
+    if (!LOCAL.model) {
+      setStatus("Loading the built-in AI. The first time, this downloads about 250 MB and can take a few minutes; after that it starts quickly.");
+      await loadLocal((f, tot) => setStatus(`Downloading the built-in AI: ${Math.round(f * 100)}% of ${Math.round(tot / 1e6)} MB (first time only). Nothing from your file is uploaded.`));
+    }
+  } catch (e) {
+    console.error(e); LOCAL.failed = e;
+    setStatus("The built-in AI couldn't load in this browser (" + (e && e.message ? e.message.slice(0, 80) : "unknown error") + "). Type the descriptions instead, or try a current version of Chrome or Edge.");
+    return;
+  }
+  for (let k = 0; k < todo.length; k++) {
+    const it = todo[k];
+    setStatus(`Describing image ${k + 1} of ${todo.length}…`);
+    try {
+      it.decorative = false;
+      const v = await it.localAi(it); it.needsApproval = true; if (!it.decorative) it.field.value = v;
+      const old = it._el; const fresh = reviewEl(it); old.replaceWith(fresh);
+      fresh.querySelector(".msg").textContent = it.decorative ? "This looks like a tiny or decorative image, so it's marked decorative. Uncheck if it carries information." : "Written automatically from what's in the image. Edit it to say what students should take away; otherwise it's used as is.";
+    } catch (e) { console.error(e); if (it._el) it._el.querySelector(".msg").textContent = "Couldn't describe this image automatically. Type a description instead."; }
+  }
+  updateCounts();
+}
 
 /* ------------------------------------------------------------------ */
 /* Upload wiring and examples                                           */
